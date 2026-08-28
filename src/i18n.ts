@@ -150,6 +150,18 @@ const DICT = {
   ariaChart: { ja: 'リポジトリ別アクティビティの折れ線グラフ', en: 'Line chart of activity by repository' },
   removeRepo: { ja: '{name} を外す', en: 'Remove {name}' },
   retry: { ja: '再試行', en: 'Retry' },
+  retryAll: { ja: '失敗した {n} 件を再試行', en: 'Retry {n} failed' },
+  retryOne: { ja: '{name} を再試行', en: 'Retry {name}' },
+  pending: { ja: '集計待ち', en: 'Waiting' },
+  errorPending: {
+    ja: '{n} 件は GitHub が初めて統計を作っているところです。1 分ほど置いて再試行してください（一度作られれば次からはすぐ表示されます）。',
+    en: 'GitHub is building statistics for {n} repositories for the first time. Wait about a minute and retry — once built, they load instantly.',
+  },
+  errorOther: { ja: '{detail}', en: '{detail}' },
+  rateLow: {
+    ja: '残りリクエストが少なくなっています（{remaining}/{limit}）。トークンを設定すると 5000 回/時になります。',
+    en: 'Few requests left ({remaining}/{limit}). Setting a token raises the limit to 5,000/hour.',
+  },
 } as const;
 
 export type MessageKey = keyof typeof DICT;

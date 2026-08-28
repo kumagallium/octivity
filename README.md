@@ -61,12 +61,15 @@ These are GitHub's limits, not bugs — but they change how you should read the 
   you which ones and why, rather than drawing a misleading flat zero line.
   There is no workaround — `stats/code_frequency` returns `422` for the same
   repositories.
-- **First request may be slow.** GitHub computes these statistics lazily and answers
-  `202` while it works. octivity retries with backoff; a cold, large repository can
-  take several seconds. Very large repositories also return very large responses
-  (webpack's is ~34 MB).
-- **Rate limit.** 60 requests/hour without a token, 5,000 with one. The remaining
-  count is shown in the footer.
+- **The very first look at a repository can fail.** GitHub computes these statistics
+  lazily: the first request starts a background job and answers `202` until it finishes.
+  octivity waits about 40 seconds, then hands you a retry button — retrying almost always
+  succeeds, and the repository loads instantly from then on. This is most likely on
+  repositories nobody has opened the Insights tab for, which usually means your own.
+  Very large repositories also return very large responses (webpack's is ~34 MB).
+- **Rate limit.** 60 requests/hour without a token, 5,000 with one, counted per IP
+  address. The remaining count is shown in the footer, and a warning appears once it
+  runs low. Comparing a dozen repositories at once is what usually exhausts it.
 - **Accounts are built from the top committers** of each repository (up to 60 per
   repository), which is what the per-account view draws from. The repository-level
   contributor *count* still uses everyone GitHub returned.
@@ -199,10 +202,14 @@ MIT. Not affiliated with GitHub, Inc.
   行数系の指標から**そのリポジトリを除外**し、理由を明示します。0 の直線を引くと
   「変更がなかった」と誤読されるためです。回避策はありません
   （`stats/code_frequency` も同じリポジトリでは 422 を返します）。
-- **初回は遅いことがある。** GitHub は統計を遅延生成し、その間 `202` を返します。
-  octivity はバックオフしながら待ちます。巨大なリポジトリはレスポンス自体も大きく、
-  webpack で約 34 MB あります。
-- **レート制限。** トークンなしで 60 回/時、ありで 5000 回/時。残量はフッターに出ます。
+- **初めて見るリポジトリは 1 回目が失敗することがある。** GitHub は統計を遅延生成します。
+  最初のリクエストが集計を起動し、終わるまで `202` を返し続けます。octivity は約 40 秒
+  待ってから再試行ボタンを出します。押せばたいてい通り、以降は即座に表示されます。
+  Insights タブを誰も開いていないリポジトリで起きやすく、それはたいてい自分のリポジトリです。
+  巨大なリポジトリはレスポンス自体も大きく、webpack で約 34 MB あります。
+- **レート制限。** トークンなしで 60 回/時、ありで 5000 回/時。IP アドレス単位で数えられます。
+  残量はフッターに出て、少なくなると警告が出ます。十数個のリポジトリを一度に並べると
+  だいたいここで尽きます。
 - **アカウント別の線は各リポジトリのコミット上位者**（リポジトリあたり最大 60 人）から
   組み立てています。リポジトリ単位の「貢献者数」は GitHub が返した全員を数えています。
 - **プルリク数は扱えません。** GitHub の統計 API に PR のデータはなく、別の方法で数えると

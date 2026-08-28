@@ -372,3 +372,12 @@ button:disabled { opacity: 0.5; cursor: default; }
 /* アカウント別では「人数」列（5列目）を隠す */
 .legend-table[data-series-by='account'] th:nth-child(5),
 .legend-table[data-series-by='account'] td:nth-child(5) { display: none; }
+
+/* 失敗の通知と再試行 */
+.form-error { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.problem { margin: 0; }
+.chip .retry {
+  font-size: 14px;
+  color: var(--accent);
+  padding: 0 2px;
+}

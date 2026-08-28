@@ -25,12 +25,18 @@ import type {
 
 const PROJECT_URL = 'https://github.com/kumagallium/octivity';
 const EXAMPLE = ['vitejs/vite', 'webpack/webpack', 'rollup/rollup', 'evanw/esbuild'];
-/** 同時に走らせる GitHub リクエスト数。多すぎると二次レート制限に触れる */
-const CONCURRENCY = 3;
+/**
+ * 同時に走らせる GitHub リクエスト数。
+ * 統計は「最初に叩いた時点で GitHub 側の集計が始まる」ので、
+ * 少なすぎると後ろのリポジトリの集計開始が丸ごと遅れる。
+ * 二次レート制限に触れない範囲でやや広めに取る。
+ */
+const CONCURRENCY = 5;
 
 interface RepoEntry {
   fullName: string;
-  status: 'loading' | 'ready' | 'error';
+  /** pending は失敗ではなく「GitHub が集計中で、再試行すれば通る」状態 */
+  status: 'loading' | 'pending' | 'ready' | 'error';
   series: RepoSeries | null;
   error: string | null;
 }
@@ -142,7 +148,7 @@ async function loadAll(): Promise<void> {
   const controller = new AbortController();
   inflight = controller;
 
-  const pending = entries.filter((e) => e.status === 'loading' || e.status === 'error');
+  const pending = entries.filter((e) => e.status !== 'ready');
   for (const e of pending) {
     e.status = 'loading';
     e.error = null;
@@ -169,7 +175,8 @@ async function loadAll(): Promise<void> {
         entry.error = series.weeks.length === 0 ? t(lang, 'noData') : null;
       } catch (err) {
         if (controller.signal.aborted) return;
-        entry.status = 'error';
+        const pendingStats = err instanceof GitHubError && err.kind === 'stats-pending';
+        entry.status = pendingStats ? 'pending' : 'error';
         entry.error =
           err instanceof GitHubError ? err.message : (err as Error).message ?? 'unknown error';
       }
@@ -206,6 +213,22 @@ function renderChips(): void {
     name.textContent = entry.fullName + (entry.series?.truncated === true ? ' *' : '');
     li.append(name);
 
+    if (entry.status === 'pending' || entry.status === 'error') {
+      // 「もう一度お試しください」と書く以上、その手段を同じ場所に置く
+      const retry = document.createElement('button');
+      retry.type = 'button';
+      retry.className = 'retry';
+      retry.textContent = '↻';
+      retry.setAttribute('aria-label', t(lang, 'retryOne', { name: entry.fullName }));
+      retry.addEventListener('click', () => {
+        entry.status = 'loading';
+        entry.error = null;
+        render();
+        void loadAll();
+      });
+      li.append(retry);
+    }
+
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.textContent = '×';
@@ -221,10 +244,69 @@ function renderChips(): void {
   });
 
   $('clear-all').hidden = entries.length === 0;
-  const errors = entries.filter((e) => e.status === 'error');
+  renderProblems();
+}
+
+/**
+ * 失敗の通知。
+ * 同じ理由で 6 件落ちたときに同じ文章を 6 回並べると、
+ * 特に狭い画面では読む前に諦められてしまうので、理由ごとにまとめる。
+ */
+function renderProblems(): void {
   const box = $('form-error');
-  box.hidden = errors.length === 0;
-  box.textContent = errors.map((e) => `${e.fullName}: ${e.error ?? ''}`).join(' / ');
+  const waiting = entries.filter((e) => e.status === 'pending');
+  const failed = entries.filter((e) => e.status === 'error');
+  const rl = client.rateLimit;
+  // 残量が少ないことはフッターにも出ているが、狭い画面では視界に入らない
+  const lowRate = rl !== null && !client.hasToken && rl.remaining <= 10;
+
+  box.innerHTML = '';
+  box.hidden = waiting.length === 0 && failed.length === 0 && !lowRate;
+  if (box.hidden) return;
+
+  if (waiting.length > 0) {
+    const line = document.createElement('p');
+    line.className = 'problem';
+    line.textContent = t(lang, 'errorPending', { n: waiting.length });
+    box.append(line);
+  }
+
+  // 失敗は理由ごとにまとめ、対象のリポジトリ名を添える
+  const byReason = new Map<string, string[]>();
+  for (const e of failed) {
+    const reason = e.error ?? '';
+    byReason.set(reason, [...(byReason.get(reason) ?? []), e.fullName]);
+  }
+  for (const [reason, names] of byReason) {
+    const line = document.createElement('p');
+    line.className = 'problem';
+    line.textContent = `${names.join('、')}: ${reason}`;
+    box.append(line);
+  }
+
+  if (lowRate && rl !== null) {
+    const line = document.createElement('p');
+    line.className = 'problem';
+    line.textContent = t(lang, 'rateLow', { remaining: rl.remaining, limit: rl.limit });
+    box.append(line);
+  }
+
+  const stuck = waiting.length + failed.length;
+  if (stuck > 0) {
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'link';
+    retry.textContent = t(lang, 'retryAll', { n: stuck });
+    retry.addEventListener('click', () => {
+      for (const e of [...waiting, ...failed]) {
+        e.status = 'loading';
+        e.error = null;
+      }
+      render();
+      void loadAll();
+    });
+    box.append(retry);
+  }
 }
 
 function renderChart(): void {
@@ -710,7 +792,10 @@ function main(): void {
   bindPicker();
 
   $<HTMLAnchorElement>('repo-link').href = PROJECT_URL;
-  client.onRateLimit = () => renderRateLimit();
+  client.onRateLimit = () => {
+    renderRateLimit();
+    renderProblems();
+  };
 
   $<HTMLFormElement>('add-form').addEventListener('submit', (e) => {
     e.preventDefault();

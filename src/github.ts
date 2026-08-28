@@ -17,6 +17,12 @@ const CONTRIBUTOR_CAP = 100;
 const CONTRIBUTOR_DETAIL_CAP = 60;
 /** オーナー一覧を 1 リクエストで取る件数 */
 const OWNER_REPOS_PER_PAGE = 100;
+/**
+ * 202 が返ったあと、集計の完了を待つ間隔（ミリ秒）。
+ * 詰めて叩いても GitHub の集計は早くならず、レート制限だけが減る。
+ * 合計 3 回・約 40 秒待って、それでも駄目なら利用者に再試行を委ねる。
+ */
+const POLL_DELAYS = [4000, 12000, 25000];
 
 export class GitHubError extends Error {
   constructor(
@@ -142,13 +148,21 @@ export class GitHubClient {
   /**
    * stats 系エンドポイントは初回アクセス時に 202 を返し、
    * GitHub 側でバックグラウンド集計が終わるのを待つ必要がある。
-   * その 202 を指数バックオフで待ち受ける。
+   *
+   * 最初の 1 回で集計は起動しているので、あとは終わるのを待つだけ。
+   * 短い間隔で何度も叩いてもレート制限を減らすだけなので、
+   * 回数を絞って間隔を広く取る。
    */
-  async #get<T>(path: string, opts: { retry202?: number; signal?: AbortSignal } = {}): Promise<T> {
-    const maxRetries = opts.retry202 ?? 0;
-    let delay = 1200;
+  async #get<T>(path: string, opts: { poll?: boolean; signal?: AbortSignal } = {}): Promise<T> {
+    const delays = opts.poll === true ? POLL_DELAYS : [];
 
     for (let attempt = 0; ; attempt++) {
+      // 残量が尽きているなら、投げても 403 が返るだけなので手前で止める
+      const rl = this.rateLimit;
+      if (rl !== null && rl.remaining <= 0 && Date.now() < rl.reset) {
+        throw this.#rateLimitError();
+      }
+
       let res: Response;
       try {
         res = await fetch(API + path, { headers: this.#headers(), signal: opts.signal });
@@ -159,15 +173,15 @@ export class GitHubClient {
       this.#readRateLimit(res);
 
       if (res.status === 202) {
-        if (attempt >= maxRetries) {
+        const wait = delays[attempt];
+        if (wait === undefined) {
           throw new GitHubError(
-            'GitHub が統計を集計中です。少し待ってからもう一度お試しください',
+            'GitHub がこのリポジトリの統計を初めて作っています。1 分ほど置いて再試行してください',
             202,
             'stats-pending',
           );
         }
-        await sleep(delay, opts.signal);
-        delay = Math.min(delay * 2, 10_000);
+        await sleep(wait, opts.signal);
         continue;
       }
 
@@ -192,16 +206,7 @@ export class GitHubClient {
       return new GitHubError('トークンが無効です', 401, 'unauthorized');
     }
     if (res.status === 403 || res.status === 429) {
-      const remaining = this.rateLimit?.remaining;
-      if (remaining === 0) {
-        const at = this.rateLimit ? new Date(this.rateLimit.reset) : null;
-        const when = at ? `${at.getHours()}時${String(at.getMinutes()).padStart(2, '0')}分` : '';
-        return new GitHubError(
-          `レート制限に達しました。${when ? when + 'に回復します。' : ''}トークンを設定すると上限が 5000 回/時になります`,
-          res.status,
-          'rate-limit',
-        );
-      }
+      if (this.rateLimit?.remaining === 0) return this.#rateLimitError();
       return new GitHubError('GitHub にアクセスを拒否されました', res.status, 'other');
     }
     if (res.status === 422) {
@@ -212,6 +217,19 @@ export class GitHubClient {
       );
     }
     return new GitHubError(`GitHub API エラー (${res.status}) ${path}`, res.status, 'other');
+  }
+
+  #rateLimitError(): GitHubError {
+    const at = this.rateLimit !== null ? new Date(this.rateLimit.reset) : null;
+    const when =
+      at !== null ? `${at.getHours()}時${String(at.getMinutes()).padStart(2, '0')}分` : '';
+    return new GitHubError(
+      `1 時間あたりのリクエスト上限に達しました。${
+        when !== '' ? when + 'に回復します。' : ''
+      }トークンを設定すると 60 回/時から 5000 回/時になります`,
+      403,
+      'rate-limit',
+    );
   }
 
   async fetchMeta(ref: RepoRef, signal?: AbortSignal): Promise<RepoMeta> {
@@ -314,7 +332,7 @@ export class GitHubClient {
     const meta = await this.fetchMeta(ref, signal);
     const stats = await this.#get<ContributorStat[]>(
       `/repos/${ref.owner}/${ref.name}/stats/contributors`,
-      { retry202: 4, signal },
+      { poll: true, signal },
     );
 
     const series = buildSeries(meta, Array.isArray(stats) ? stats : []);
