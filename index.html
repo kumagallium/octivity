@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>octivity — GitHub repository activity, compared</title>
+    <meta
+      name="description"
+      content="Compare the commit and code activity of multiple GitHub repositories on a single timeline chart. Runs entirely in your browser."
+    />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+  </head>
+  <body>
+    <a class="skip-link" href="#chart-region">Skip to chart</a>
+
+    <header class="topbar">
+      <div class="brand">
+        <h1>octivity</h1>
+        <p class="tagline" data-i18n="tagline"></p>
+      </div>
+      <div class="topbar-actions">
+        <button type="button" id="lang-toggle" class="ghost" aria-label="Language">日本語 / EN</button>
+        <button type="button" id="theme-toggle" class="ghost" aria-label="Theme">◐</button>
+        <button type="button" id="token-open" class="ghost" data-i18n="token"></button>
+        <a class="ghost" id="repo-link" href="https://github.com/" rel="noopener">GitHub</a>
+      </div>
+    </header>
+
+    <main>
+      <section class="panel" aria-labelledby="add-heading">
+        <h2 id="add-heading" class="sr-only" data-i18n="addRepo"></h2>
+        <form id="add-form" class="add-form">
+          <input
+            id="repo-input"
+            type="text"
+            autocomplete="off"
+            spellcheck="false"
+            data-i18n-placeholder="repoPlaceholder"
+          />
+          <button type="submit" class="primary" data-i18n="add"></button>
+        </form>
+        <p class="form-error" id="form-error" role="alert" hidden></p>
+        <div class="quick-actions">
+          <button type="button" class="link" id="load-example" data-i18n="examples"></button>
+          <button type="button" class="link" id="clear-all" data-i18n="clearAll" hidden></button>
+        </div>
+        <ul class="chips" id="chips" aria-live="polite"></ul>
+      </section>
+
+      <section class="panel controls" id="controls" aria-label="Chart options" hidden>
+        <label class="field">
+          <span data-i18n="metric"></span>
+          <select id="metric">
+            <option value="commits" data-i18n="m_commits"></option>
+            <option value="additions" data-i18n="m_additions"></option>
+            <option value="deletions" data-i18n="m_deletions"></option>
+            <option value="net" data-i18n="m_net"></option>
+            <option value="churn" data-i18n="m_churn"></option>
+            <option value="contributors" data-i18n="m_contributors"></option>
+          </select>
+        </label>
+        <label class="field">
+          <span data-i18n="granularity"></span>
+          <select id="granularity">
+            <option value="week" data-i18n="g_week"></option>
+            <option value="month" data-i18n="g_month"></option>
+            <option value="quarter" data-i18n="g_quarter"></option>
+            <option value="year" data-i18n="g_year"></option>
+          </select>
+        </label>
+        <label class="field">
+          <span data-i18n="xAxis"></span>
+          <select id="xmode">
+            <option value="date" data-i18n="x_date"></option>
+            <option value="age" data-i18n="x_age"></option>
+          </select>
+        </label>
+        <label class="field">
+          <span data-i18n="smooth"></span>
+          <select id="smooth"></select>
+        </label>
+        <label class="field">
+          <span data-i18n="normalize"></span>
+          <select id="normalize">
+            <option value="none" data-i18n="n_none"></option>
+            <option value="peak" data-i18n="n_peak"></option>
+            <option value="share" data-i18n="n_share"></option>
+          </select>
+        </label>
+        <div class="toggles">
+          <label class="check"><input type="checkbox" id="cumulative" /><span data-i18n="cumulative"></span></label>
+          <label class="check"><input type="checkbox" id="logscale" /><span data-i18n="logScale"></span></label>
+        </div>
+      </section>
+
+      <section class="panel chart-panel" id="chart-region" aria-labelledby="chart-heading">
+        <h2 id="chart-heading" class="sr-only" data-i18n="ariaChart"></h2>
+        <div class="chart-wrap" id="chart-wrap" hidden>
+          <canvas id="chart" role="img"></canvas>
+        </div>
+        <p class="note" id="metric-note" role="status" hidden></p>
+        <div class="empty" id="empty">
+          <p class="empty-title" data-i18n="emptyTitle"></p>
+          <p class="empty-body" data-i18n="emptyBody"></p>
+        </div>
+      </section>
+
+      <section class="panel" id="legend-panel" hidden>
+        <div class="table-scroll">
+          <table class="legend-table">
+            <thead>
+              <tr>
+                <th scope="col"></th>
+                <th scope="col" data-i18n="th_repo"></th>
+                <th scope="col" class="num" data-i18n="th_total"></th>
+                <th scope="col" class="num" data-i18n="th_peak"></th>
+                <th scope="col" class="num" data-i18n="th_people"></th>
+                <th scope="col" data-i18n="th_first"></th>
+                <th scope="col" data-i18n="th_last"></th>
+              </tr>
+            </thead>
+            <tbody id="legend-body"></tbody>
+          </table>
+        </div>
+        <p class="note" id="truncated-note" data-i18n="truncatedNote" hidden></p>
+        <div class="exports">
+          <button type="button" id="copy-url" data-i18n="copyUrl"></button>
+          <button type="button" id="export-csv" data-i18n="exportCsv"></button>
+          <button type="button" id="export-png" data-i18n="exportPng"></button>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span id="rate-limit" class="rate"></span>
+      <button type="button" class="link" id="clear-cache" data-i18n="clearCache"></button>
+      <span class="grow"></span>
+      <span class="disclaimer">MIT License · not affiliated with GitHub, Inc.</span>
+    </footer>
+
+    <dialog id="token-dialog" class="token-dialog">
+      <form method="dialog" class="token-form">
+        <h2 data-i18n="tokenTitle"></h2>
+        <p class="help" data-i18n="tokenHelp"></p>
+        <p class="help safety" data-i18n="tokenSafety"></p>
+        <input
+          type="password"
+          id="token-input"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="github_pat_..."
+        />
+        <label class="check">
+          <input type="checkbox" id="token-remember" />
+          <span data-i18n="tokenRemember"></span>
+        </label>
+        <p class="help" data-i18n="tokenRememberHelp"></p>
+        <p class="help">
+          <a
+            href="https://github.com/settings/personal-access-tokens/new"
+            rel="noopener"
+            target="_blank"
+            data-i18n="tokenCreate"
+          ></a>
+        </p>
+        <div class="dialog-actions">
+          <button type="button" id="token-remove" class="ghost" data-i18n="remove"></button>
+          <span class="grow"></span>
+          <button type="button" id="token-cancel" class="ghost" data-i18n="close"></button>
+          <button type="button" id="token-save" class="primary" data-i18n="save"></button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+.vite/
+coverage/
+
+# Claude Code のローカル設定
+.claude/

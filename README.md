@@ -1,0 +1,231 @@
+# octivity
+
+Compare the activity of multiple GitHub repositories on a single timeline chart.
+Runs entirely in your browser — no server, no install, no sign-up.
+
+**[Open the app →](https://kumagallium.github.io/octivity/)**
+
+[日本語の説明は下にあります](#日本語)
+
+---
+
+## What it does
+
+Type a few `owner/repo` names and get one chart with every repository on it:
+
+- **Commits**, **lines added**, **lines deleted**, **net lines**, **churn**, **contributors**
+- **Weekly / monthly / quarterly / yearly** buckets
+- Two time axes: **calendar date**, or **repository age** — the latter lines every
+  repository up at its own week zero, so a two-year-old project and a
+  twelve-year-old one can be compared on equal footing
+- **Cumulative** mode (cumulative net lines ≈ how the codebase grew; cumulative
+  contributors counts *unique* people, not the same person over and over)
+- Centered moving average, peak-normalisation, share-of-total, log scale
+- Export the view as **CSV** or **PNG**, or just copy the URL — every setting
+  lives in the query string, so a link reproduces exactly what you are looking at
+
+## How it gets the data
+
+Two requests per repository, straight from your browser to `api.github.com`:
+
+| Request | What it gives |
+|---|---|
+| `GET /repos/{owner}/{repo}` | creation date, description, stars |
+| `GET /repos/{owner}/{repo}/stats/contributors` | **the whole history**, week by week, per contributor: commits, lines added, lines deleted |
+
+That is the entire data layer. Results are cached in `localStorage` for six hours,
+so revisiting a comparison costs nothing.
+
+## Limits you should know about
+
+These are GitHub's limits, not bugs — but they change how you should read the chart:
+
+- **Contributor cap.** For repositories with many contributors, GitHub returns only
+  the top slice. Those repositories are marked `*` and their totals are a **lower
+  bound**, not the true total.
+- **No line counts on large repositories.** Above roughly 10,000 commits GitHub
+  stops reporting additions and deletions and returns commit counts only. octivity
+  detects this and **excludes those repositories from line-based metrics**, telling
+  you which ones and why, rather than drawing a misleading flat zero line.
+  There is no workaround — `stats/code_frequency` returns `422` for the same
+  repositories.
+- **First request may be slow.** GitHub computes these statistics lazily and answers
+  `202` while it works. octivity retries with backoff; a cold, large repository can
+  take several seconds. Very large repositories also return very large responses
+  (webpack's is ~34 MB).
+- **Rate limit.** 60 requests/hour without a token, 5,000 with one. The remaining
+  count is shown in the footer.
+- **Weeks are GitHub's weeks** — Sunday 00:00 UTC boundaries. Month, quarter, and
+  year buckets are built by summing those weeks, so a week that straddles a month
+  boundary lands in the month its Sunday falls in.
+
+## Your access token
+
+A token is optional and only raises the rate limit. If you use one:
+
+- It goes **only** to `api.github.com`. There is no relay server — GitHub Pages
+  serves static files and nothing else.
+- The deployed page ships a Content-Security-Policy with
+  `connect-src https://api.github.com`, so even if something were injected into the
+  page, it could not transmit your token anywhere else.
+- It is stored in `sessionStorage` by default and disappears when you close the tab.
+  Persisting it to `localStorage` is a separate, explicit opt-in.
+- It is **never** written to the URL, so shared links never carry it.
+- A fine-grained token with read-only access to public repositories is enough.
+
+If you would rather not trust a hosted page with a token at all, run it locally:
+the app is identical.
+
+## Run it locally
+
+```bash
+git clone https://github.com/kumagallium/octivity.git
+cd octivity
+npm install
+npm run dev
+```
+
+| Command | What it does |
+|---|---|
+| `npm run dev` | dev server with hot reload |
+| `npm run build` | typecheck, then build into `dist/` |
+| `npm test` | run the unit tests |
+| `npm run typecheck` | TypeScript only |
+
+Deploying your own copy: enable GitHub Pages with "GitHub Actions" as the source.
+`.github/workflows/deploy.yml` handles the rest, and the build uses relative paths,
+so it works at any URL without configuration.
+
+## How it is built
+
+No framework. TypeScript, Vite, and Chart.js — one runtime dependency, deliberately,
+because a page that handles access tokens should have as small a supply chain as
+possible.
+
+```
+src/
+  github.ts    GitHub API client — 202 retries, rate limits, error mapping
+  metrics.ts   pure aggregation: bucketing, cumulation, smoothing, normalisation
+  chart.ts     Chart.js configuration and date-axis ticks
+  state.ts     URL query string <-> application state
+  cache.ts     localStorage cache with TTL and eviction
+  main.ts      wiring
+```
+
+`metrics.ts` and `state.ts` are pure and covered by tests. Contributions welcome —
+if you change aggregation behaviour, please add a test alongside it.
+
+## License
+
+MIT. Not affiliated with GitHub, Inc.
+
+---
+
+<a id="日本語"></a>
+
+# octivity（日本語）
+
+複数の GitHub リポジトリのアクティビティを、1 枚の時系列グラフで比較するツールです。
+ブラウザだけで動きます。サーバーもインストールもアカウント登録も不要です。
+
+**[アプリを開く →](https://kumagallium.github.io/octivity/)**
+
+## できること
+
+`owner/repo` をいくつか入れると、全部を重ねた 1 枚のグラフになります。
+
+- **コミット数**・**追加行数**・**削除行数**・**純増行数**・**変更行数**・**貢献者数**
+- **週 / 月 / 四半期 / 年** の粒度
+- 横軸は 2 通り。**実日付**と、**リポジトリ年齢**。後者は各リポジトリを自分の
+  0 週目に揃えるので、2 年目のプロジェクトと 12 年目のプロジェクトを同じ土俵で比べられます
+- **累積**モード（累積純増行数はコードの成長曲線に、累積貢献者数は同じ人を
+  二重に数えない実人数になります）
+- 中央寄せ移動平均、ピーク正規化、シェア表示、対数軸
+- **CSV** / **PNG** 書き出し、URL コピー。設定はすべてクエリ文字列に入るので、
+  リンクを渡せば同じ画面が再現されます
+
+## データの取り方
+
+1 リポジトリにつき 2 リクエスト。ブラウザから `api.github.com` を直接叩きます。
+
+| リクエスト | 得られるもの |
+|---|---|
+| `GET /repos/{owner}/{repo}` | 作成日・説明・スター数 |
+| `GET /repos/{owner}/{repo}/stats/contributors` | **全期間**の週次データ（貢献者別のコミット数・追加行数・削除行数） |
+
+これがデータ層のすべてです。結果は `localStorage` に 6 時間キャッシュされます。
+
+## 知っておくべき制約
+
+いずれも GitHub 側の仕様で、グラフの読み方に関わります。
+
+- **貢献者の打ち切り。** 貢献者が多いリポジトリでは GitHub が上位ぶんしか返しません。
+  該当するものには `*` を付けており、合計値は**下限**とみなしてください。
+- **大きなリポジトリでは行数が取れない。** おおむね 1 万コミットを超えると、GitHub は
+  追加・削除行数の報告をやめてコミット数だけを返します。octivity はこれを検出して、
+  行数系の指標から**そのリポジトリを除外**し、理由を明示します。0 の直線を引くと
+  「変更がなかった」と誤読されるためです。回避策はありません
+  （`stats/code_frequency` も同じリポジトリでは 422 を返します）。
+- **初回は遅いことがある。** GitHub は統計を遅延生成し、その間 `202` を返します。
+  octivity はバックオフしながら待ちます。巨大なリポジトリはレスポンス自体も大きく、
+  webpack で約 34 MB あります。
+- **レート制限。** トークンなしで 60 回/時、ありで 5000 回/時。残量はフッターに出ます。
+- **週の境界は GitHub の定義**（日曜 00:00 UTC）です。月・四半期・年はその週を
+  合算して作るので、月をまたぐ週は日曜が属する月に入ります。
+
+## アクセストークンについて
+
+トークンは任意で、レート制限を上げるためだけのものです。使う場合:
+
+- 送信先は `api.github.com` **のみ**です。中継サーバーは存在しません
+  （GitHub Pages は静的ファイルを配るだけです）。
+- 配信ページには `connect-src https://api.github.com` を含む CSP が付いています。
+  仮にページに何かが混入しても、トークンを他所へ送り出すことはできません。
+- 既定では `sessionStorage` に置かれ、タブを閉じると消えます。
+  `localStorage` への永続化は明示的なオプトインです。
+- URL には**決して**載せません。共有リンクからは漏れません。
+- 権限は fine-grained token の「public repositories の read-only」だけで足ります。
+
+ホストされたページにトークンを預けたくない場合は、手元で動かしてください。中身は同一です。
+
+## 手元で動かす
+
+```bash
+git clone https://github.com/kumagallium/octivity.git
+cd octivity
+npm install
+npm run dev
+```
+
+| コマンド | 内容 |
+|---|---|
+| `npm run dev` | 開発サーバー（ホットリロード） |
+| `npm run build` | 型チェックしてから `dist/` にビルド |
+| `npm test` | ユニットテスト |
+| `npm run typecheck` | 型チェックのみ |
+
+自分の環境に配置する場合は、GitHub Pages のソースを「GitHub Actions」にするだけです。
+あとは `.github/workflows/deploy.yml` が処理します。ビルドは相対パスなので、
+どの URL に置いても設定なしで動きます。
+
+## 構成
+
+フレームワークなし。TypeScript + Vite + Chart.js で、実行時依存は 1 つだけです。
+アクセストークンを扱うページのサプライチェーンは、小さいほどよいという判断です。
+
+```
+src/
+  github.ts    GitHub API クライアント（202 リトライ・レート制限・エラー変換）
+  metrics.ts   純粋な集計（バケット化・累積・平滑化・正規化）
+  chart.ts     Chart.js の設定と日付軸の目盛り生成
+  state.ts     URL クエリ文字列 <-> アプリケーション状態
+  cache.ts     TTL と追い出し付きの localStorage キャッシュ
+  main.ts      配線
+```
+
+`metrics.ts` と `state.ts` は純粋関数でテスト済みです。集計の挙動を変える場合は、
+テストも一緒に足してください。
+
+## ライセンス
+
+MIT。GitHub, Inc. とは無関係です。
