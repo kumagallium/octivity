@@ -1,4 +1,4 @@
-import type { RepoMeta, RepoSeries } from '../src/types';
+import type { ContributorSeries, RepoMeta, RepoSeries } from '../src/types';
 
 export const WEEK = 7 * 24 * 60 * 60;
 /** 2024-01-07 は日曜。GitHub の週境界と同じ基準になる */
@@ -30,6 +30,7 @@ export function series(opts: {
   metaOverrides?: Partial<RepoMeta>;
   truncated?: boolean;
   hasLineStats?: boolean;
+  contributors?: ContributorSeries[];
 }): RepoSeries {
   const start = opts.start ?? SUNDAY_2024_01_07;
   const weeks = opts.commits.map((_, i) => start + i * WEEK);
@@ -40,7 +41,23 @@ export function series(opts: {
     additions: opts.additions ?? opts.commits.map(() => 0),
     deletions: opts.deletions ?? opts.commits.map(() => 0),
     activeWeeks: opts.activeWeeks ?? [],
+    contributors: opts.contributors ?? [],
     truncated: opts.truncated ?? false,
     hasLineStats: opts.hasLineStats ?? true,
+  };
+}
+
+/** 疎な貢献者データを組み立てる。weeks は RepoSeries.weeks の index */
+export function contributor(
+  login: string,
+  entries: { week: number; c?: number; a?: number; d?: number }[],
+): ContributorSeries {
+  return {
+    login,
+    weeks: entries.map((e) => e.week),
+    commits: entries.map((e) => e.c ?? 0),
+    additions: entries.map((e) => e.a ?? 0),
+    deletions: entries.map((e) => e.d ?? 0),
+    totalCommits: entries.reduce((sum, e) => sum + (e.c ?? 0), 0),
   };
 }

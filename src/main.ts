@@ -1,13 +1,27 @@
 import './style.css';
-import { GitHubClient, GitHubError, parseRepoRef, refToString } from './github';
-import { buildSeries, isLineMetric, summarize } from './metrics';
+import { GitHubClient, GitHubError, classifyInput, parseRepoRef, refToString } from './github';
+import { accountSeries, buildSeries, isLineMetric, summarize } from './metrics';
 import { createChart, formatX } from './chart';
-import { SMOOTH_OPTIONS, decodeState, encodeState, type AppState } from './state';
+import {
+  SMOOTH_OPTIONS,
+  TOP_ACCOUNT_OPTIONS,
+  decodeState,
+  encodeState,
+  type AppState,
+} from './state';
 import { colorFor } from './palette';
 import { detectLang, t, type Lang, type MessageKey } from './i18n';
 import { clearToken, isRemembered, loadToken, saveToken } from './token';
 import { cacheClear } from './cache';
-import type { Granularity, Metric, Normalize, RepoSeries, XMode } from './types';
+import type {
+  Granularity,
+  Metric,
+  Normalize,
+  OwnerRepo,
+  RepoSeries,
+  SeriesBy,
+  XMode,
+} from './types';
 
 const PROJECT_URL = 'https://github.com/kumagallium/octivity';
 const EXAMPLE = ['vitejs/vite', 'webpack/webpack', 'rollup/rollup', 'evanw/esbuild'];
@@ -76,6 +90,16 @@ function applyI18n(): void {
     smooth.append(opt);
   }
   smooth.value = selected === '' ? String(state.view.smooth) : selected;
+
+  const top = $<HTMLSelectElement>('top-accounts');
+  top.innerHTML = '';
+  for (const n of TOP_ACCOUNT_OPTIONS) {
+    const opt = document.createElement('option');
+    opt.value = String(n);
+    opt.textContent = t(lang, 'topN', { n });
+    top.append(opt);
+  }
+  top.value = String(state.view.topAccounts);
 }
 
 function toast(message: string): void {
@@ -233,28 +257,57 @@ function renderChart(): void {
   $('legend-panel').hidden = !hasData;
   if (!hasData) return;
 
-  // 系列の色を chips と揃えるため、entries 上の位置を色番号として渡す
-  const series = buildSeries(
-    usable.map((e) => e.series),
-    state.view,
-  ).map((s, i) => ({ ...s, colorIndex: entries.indexOf(usable[i]!) }));
+  // 1本の線が何を表すかで、線の元データも色の割り当ても変わる
+  const byAccount = state.view.seriesBy === 'account';
+  const sources = byAccount
+    ? accountSeries(
+        usable.map((e) => e.series),
+        state.view.topAccounts,
+        state.view.excludeBots,
+      )
+    : usable.map((e) => e.series);
+
+  if (sources.length === 0) {
+    $('chart-wrap').hidden = true;
+    $('legend-panel').hidden = true;
+    return;
+  }
+
+  // リポジトリ別のときは chips と色を揃えたいので entries 上の位置を使う
+  const colorIndexes = byAccount
+    ? sources.map((_, i) => i)
+    : usable.map((e) => entries.indexOf(e));
+
+  // sources はすでに系列単位に解決済みなので、ここでは repository として扱う
+  const series = buildSeries(sources, { ...state.view, seriesBy: 'repository' }).map((s, i) => ({
+    ...s,
+    colorIndex: colorIndexes[i] ?? i,
+  }));
 
   chart.update(series, state.view, lang);
   $<HTMLCanvasElement>('chart').setAttribute(
     'aria-label',
-    `${t(lang, 'ariaChart')}: ${usable.map((e) => e.fullName).join(', ')}`,
+    `${t(lang, 'ariaChart')}: ${sources.map((r) => r.meta.fullName).join(', ')}`,
   );
-  renderLegend(usable);
+  renderLegend(sources, colorIndexes, byAccount);
 }
 
-function renderLegend(ready: (RepoEntry & { series: RepoSeries })[]): void {
+function renderLegend(
+  sources: RepoSeries[],
+  colorIndexes: number[],
+  byAccount: boolean,
+): void {
   const body = $('legend-body');
   body.innerHTML = '';
   let truncated = false;
+  // アカウント別では「人数」列が常に 1 になり読む意味がないので隠す
+  document.querySelector('.legend-table')?.setAttribute('data-series-by',
+    byAccount ? 'account' : 'repository');
 
-  for (const entry of ready) {
-    const i = entries.indexOf(entry);
-    const s = summarize(entry.series, state.view.metric, state.view.granularity);
+  for (let n = 0; n < sources.length; n++) {
+    const source = sources[n]!;
+    const i = colorIndexes[n] ?? n;
+    const s = summarize(source, state.view.metric, state.view.granularity);
     truncated ||= s.truncated;
 
     const tr = document.createElement('tr');
@@ -267,7 +320,9 @@ function renderLegend(ready: (RepoEntry & { series: RepoSeries })[]): void {
 
     const nameCell = document.createElement('td');
     const link = document.createElement('a');
-    link.href = entry.series.meta.htmlUrl;
+    link.href = byAccount
+      ? `https://github.com/${encodeURIComponent(s.fullName)}`
+      : source.meta.htmlUrl;
     link.rel = 'noopener';
     link.target = '_blank';
     link.textContent = s.fullName + (s.truncated ? ' *' : '');
@@ -318,20 +373,210 @@ function pushUrl(): void {
   history.replaceState(null, '', location.pathname + encodeState(state));
 }
 
-function addRepos(raw: string): void {
-  const added: string[] = [];
-  for (const token of raw.split(/[,\s\n]+/)) {
-    const ref = parseRepoRef(token);
-    if (ref === null) continue;
-    const full = refToString(ref);
+/** 重複を避けつつリポジトリを追加し、足りないぶんだけ取得する */
+function addRepoNames(names: string[]): void {
+  let added = 0;
+  for (const full of names) {
     if (state.repos.some((r) => r.toLowerCase() === full.toLowerCase())) continue;
     state.repos.push(full);
-    added.push(full);
+    added++;
   }
-  if (added.length === 0) return;
+  if (added === 0) return;
   syncEntries();
   pushUrl();
   void loadAll();
+}
+
+/**
+ * 入力を処理する。owner/repo の並びならそのまま追加し、
+ * オーナー名だけならリポジトリを選ばせるダイアログを開く。
+ */
+function handleInput(raw: string): void {
+  const parsed = classifyInput(raw);
+  if (parsed.kind === 'owner') {
+    void openPicker(parsed.owner);
+    return;
+  }
+  addRepoNames(parsed.refs.map(refToString));
+}
+
+/* ---------- リポジトリ選択ダイアログ ---------- */
+
+interface PickerState {
+  owner: string;
+  repos: OwnerRepo[];
+  hasMore: boolean;
+  selected: Set<string>;
+}
+
+let picker: PickerState | null = null;
+
+/** 表示中の並び順・絞り込みを適用した一覧 */
+function pickerVisible(): OwnerRepo[] {
+  if (picker === null) return [];
+  const query = $<HTMLInputElement>('picker-search').value.trim().toLowerCase();
+  const withForks = $<HTMLInputElement>('picker-forks').checked;
+  const withArchived = $<HTMLInputElement>('picker-archived').checked;
+  const sort = $<HTMLSelectElement>('picker-sort').value;
+
+  const list = picker.repos.filter((r) => {
+    if (!withForks && r.fork) return false;
+    if (!withArchived && r.archived) return false;
+    if (query === '') return true;
+    return (
+      r.name.toLowerCase().includes(query) ||
+      (r.description ?? '').toLowerCase().includes(query)
+    );
+  });
+
+  list.sort((a, b) => {
+    if (sort === 'stars') return b.stars - a.stars;
+    if (sort === 'name') return a.name.localeCompare(b.name);
+    return b.pushedAt - a.pushedAt;
+  });
+  return list;
+}
+
+function renderPicker(): void {
+  if (picker === null) return;
+  const visible = pickerVisible();
+  const list = $('picker-list');
+  list.innerHTML = '';
+
+  if (visible.length === 0) {
+    const empty = document.createElement('li');
+    empty.className = 'picker-empty';
+    empty.textContent = t(lang, picker.repos.length === 0 ? 'pickerNoRepos' : 'pickerEmpty', {
+      owner: picker.owner,
+    });
+    list.append(empty);
+  }
+
+  for (const repo of visible) {
+    const li = document.createElement('li');
+    const row = document.createElement('label');
+    row.className = 'picker-row';
+
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.checked = picker.selected.has(repo.fullName);
+    // すでに読み込み済みのものは選び直させない
+    const already = state.repos.some((r) => r.toLowerCase() === repo.fullName.toLowerCase());
+    box.disabled = already;
+    if (already) box.checked = true;
+    box.addEventListener('change', () => {
+      if (picker === null) return;
+      if (box.checked) picker.selected.add(repo.fullName);
+      else picker.selected.delete(repo.fullName);
+      renderPickerCost();
+    });
+
+    const main = document.createElement('div');
+    main.className = 'picker-main';
+    const name = document.createElement('div');
+    name.className = 'picker-name';
+    name.textContent = repo.name;
+    if (repo.fork) name.append(badge(t(lang, 'forkBadge')));
+    if (repo.archived) name.append(badge(t(lang, 'archivedBadge')));
+    const desc = document.createElement('div');
+    desc.className = 'picker-desc';
+    desc.textContent = repo.description ?? '';
+    main.append(name, desc);
+
+    const meta = document.createElement('div');
+    meta.className = 'picker-meta';
+    meta.textContent = `★ ${numberFormat(repo.stars)} · ${dateFormat(repo.pushedAt)}`;
+
+    row.append(box, main, meta);
+    li.append(row);
+    list.append(li);
+  }
+
+  $('picker-summary').textContent = t(lang, 'pickerSummary', {
+    shown: visible.length,
+    total: picker.repos.length,
+  });
+  $('picker-more').hidden = !picker.hasMore;
+  renderPickerCost();
+}
+
+function badge(text: string): HTMLElement {
+  const el = document.createElement('span');
+  el.className = 'badge';
+  el.textContent = text;
+  return el;
+}
+
+/**
+ * 追加に必要なリクエスト数を出す。
+ * 一覧取得でメタ情報はキャッシュ済みなので、1 件につき統計の 1 回だけで済む。
+ */
+function renderPickerCost(): void {
+  if (picker === null) return;
+  const fresh = [...picker.selected].filter(
+    (full) => !state.repos.some((r) => r.toLowerCase() === full.toLowerCase()),
+  );
+  const cost = fresh.length;
+  const remaining = client.rateLimit?.remaining ?? Infinity;
+  const over = cost > remaining;
+
+  const cell = $('picker-cost');
+  cell.classList.toggle('over', over);
+  cell.textContent = t(lang, over ? 'pickerCostOver' : 'pickerCost', {
+    n: fresh.length,
+    cost,
+    remaining: remaining === Infinity ? '?' : remaining,
+  });
+
+  const add = $<HTMLButtonElement>('picker-add');
+  add.textContent = t(lang, 'pickerAdd', { n: fresh.length });
+  add.disabled = fresh.length === 0;
+}
+
+async function openPicker(owner: string): Promise<void> {
+  const dialog = $<HTMLDialogElement>('picker-dialog');
+  const error = $('form-error');
+  try {
+    const { repos, hasMore } = await client.fetchOwnerRepos(owner);
+    picker = { owner, repos, hasMore, selected: new Set() };
+    $('picker-title').textContent = t(lang, 'pickerTitle', { owner });
+    $<HTMLInputElement>('picker-search').value = '';
+    renderPicker();
+    renderRateLimit();
+    dialog.showModal();
+  } catch (err) {
+    error.hidden = false;
+    error.textContent = `${owner}: ${
+      err instanceof GitHubError ? err.message : (err as Error).message
+    }`;
+  }
+}
+
+function bindPicker(): void {
+  const dialog = $<HTMLDialogElement>('picker-dialog');
+  for (const id of ['picker-search', 'picker-sort', 'picker-forks', 'picker-archived']) {
+    $(id).addEventListener('input', renderPicker);
+    $(id).addEventListener('change', renderPicker);
+  }
+  $('picker-top').addEventListener('click', () => {
+    if (picker === null) return;
+    picker.selected = new Set(pickerVisible().slice(0, 10).map((r) => r.fullName));
+    renderPicker();
+  });
+  $('picker-none').addEventListener('click', () => {
+    if (picker === null) return;
+    picker.selected.clear();
+    renderPicker();
+  });
+  $('picker-cancel').addEventListener('click', () => dialog.close());
+  $('picker-add').addEventListener('click', () => {
+    if (picker === null) return;
+    // 一覧の並び順のまま追加すると色の並びが読みやすい
+    const order = pickerVisible().map((r) => r.fullName);
+    const names = order.filter((n) => picker!.selected.has(n));
+    dialog.close();
+    addRepoNames(names);
+  });
 }
 
 function exportCsv(): void {
@@ -380,6 +625,17 @@ function bindControls(): void {
     });
   };
 
+  bind<HTMLSelectElement>('series-by', (el) => {
+    state.view.seriesBy = el.value as SeriesBy;
+    // 人はリポジトリの年齢を持たないので、アカウント別では実日付に戻す
+    if (state.view.seriesBy === 'account') {
+      if (state.view.xMode === 'age') state.view.xMode = 'date';
+      // 「貢献者数」は 1 人ずつの線にすると常に 1 になり意味がない
+      if (state.view.metric === 'contributors') state.view.metric = 'commits';
+    }
+    syncControls();
+  });
+  bind<HTMLSelectElement>('top-accounts', (el) => (state.view.topAccounts = Number(el.value)));
   bind<HTMLSelectElement>('metric', (el) => (state.view.metric = el.value as Metric));
   bind<HTMLSelectElement>('granularity', (el) => (state.view.granularity = el.value as Granularity));
   bind<HTMLSelectElement>('xmode', (el) => (state.view.xMode = el.value as XMode));
@@ -387,9 +643,21 @@ function bindControls(): void {
   bind<HTMLSelectElement>('smooth', (el) => (state.view.smooth = Number(el.value)));
   bind<HTMLInputElement>('cumulative', (el) => (state.view.cumulative = el.checked));
   bind<HTMLInputElement>('logscale', (el) => (state.view.logScale = el.checked));
+  bind<HTMLInputElement>('exclude-bots', (el) => (state.view.excludeBots = el.checked));
 }
 
 function syncControls(): void {
+  const byAccount = state.view.seriesBy === 'account';
+  $<HTMLSelectElement>('series-by').value = state.view.seriesBy;
+  $<HTMLSelectElement>('top-accounts').value = String(state.view.topAccounts);
+  $('top-accounts-field').hidden = !byAccount;
+  $('exclude-bots-field').hidden = !byAccount;
+  $<HTMLInputElement>('exclude-bots').checked = state.view.excludeBots;
+  // 1本の線が指すものが変わるので、凡例の見出しも合わせる
+  $('th-name').textContent = t(lang, byAccount ? 'th_account' : 'th_repo');
+  // アカウント別では意味を持たない選択肢を選べなくする
+  $<HTMLOptionElement>('x-age-option').disabled = byAccount;
+  $<HTMLOptionElement>('m-contributors-option').disabled = byAccount;
   $<HTMLSelectElement>('metric').value = state.view.metric;
   $<HTMLSelectElement>('granularity').value = state.view.granularity;
   $<HTMLSelectElement>('xmode').value = state.view.xMode;
@@ -439,6 +707,7 @@ function main(): void {
   syncControls();
   bindControls();
   bindTokenDialog();
+  bindPicker();
 
   $<HTMLAnchorElement>('repo-link').href = PROJECT_URL;
   client.onRateLimit = () => renderRateLimit();
@@ -446,10 +715,10 @@ function main(): void {
   $<HTMLFormElement>('add-form').addEventListener('submit', (e) => {
     e.preventDefault();
     const input = $<HTMLInputElement>('repo-input');
-    addRepos(input.value);
+    handleInput(input.value);
     input.value = '';
   });
-  $('load-example').addEventListener('click', () => addRepos(EXAMPLE.join(',')));
+  $('load-example').addEventListener('click', () => addRepoNames(EXAMPLE));
   $('clear-all').addEventListener('click', () => {
     inflight?.abort();
     state.repos = [];

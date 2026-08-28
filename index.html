@@ -49,6 +49,17 @@
 
       <section class="panel controls" id="controls" aria-label="Chart options" hidden>
         <label class="field">
+          <span data-i18n="seriesBy"></span>
+          <select id="series-by">
+            <option value="repository" data-i18n="b_repository"></option>
+            <option value="account" data-i18n="b_account"></option>
+          </select>
+        </label>
+        <label class="field" id="top-accounts-field" hidden>
+          <span data-i18n="topAccounts"></span>
+          <select id="top-accounts"></select>
+        </label>
+        <label class="field">
           <span data-i18n="metric"></span>
           <select id="metric">
             <option value="commits" data-i18n="m_commits"></option>
@@ -56,7 +67,7 @@
             <option value="deletions" data-i18n="m_deletions"></option>
             <option value="net" data-i18n="m_net"></option>
             <option value="churn" data-i18n="m_churn"></option>
-            <option value="contributors" data-i18n="m_contributors"></option>
+            <option value="contributors" id="m-contributors-option" data-i18n="m_contributors"></option>
           </select>
         </label>
         <label class="field">
@@ -72,7 +83,7 @@
           <span data-i18n="xAxis"></span>
           <select id="xmode">
             <option value="date" data-i18n="x_date"></option>
-            <option value="age" data-i18n="x_age"></option>
+            <option value="age" id="x-age-option" data-i18n="x_age"></option>
           </select>
         </label>
         <label class="field">
@@ -90,6 +101,9 @@
         <div class="toggles">
           <label class="check"><input type="checkbox" id="cumulative" /><span data-i18n="cumulative"></span></label>
           <label class="check"><input type="checkbox" id="logscale" /><span data-i18n="logScale"></span></label>
+          <label class="check" id="exclude-bots-field" hidden
+            ><input type="checkbox" id="exclude-bots" /><span data-i18n="excludeBots"></span
+          ></label>
         </div>
       </section>
 
@@ -111,7 +125,7 @@
             <thead>
               <tr>
                 <th scope="col"></th>
-                <th scope="col" data-i18n="th_repo"></th>
+                <th scope="col" id="th-name" data-i18n="th_repo"></th>
                 <th scope="col" class="num" data-i18n="th_total"></th>
                 <th scope="col" class="num" data-i18n="th_peak"></th>
                 <th scope="col" class="num" data-i18n="th_people"></th>
@@ -170,6 +184,47 @@
           <button type="button" id="token-save" class="primary" data-i18n="save"></button>
         </div>
       </form>
+    </dialog>
+
+    <dialog id="picker-dialog" class="picker-dialog">
+      <div class="picker">
+        <h2 id="picker-title"></h2>
+        <p class="help" id="picker-summary"></p>
+        <p class="help" id="picker-more" hidden data-i18n="pickerHasMore"></p>
+        <div class="picker-controls">
+          <input
+            type="search"
+            id="picker-search"
+            autocomplete="off"
+            data-i18n-placeholder="pickerSearch"
+          />
+          <select id="picker-sort">
+            <option value="pushed" data-i18n="pickerSortPushed"></option>
+            <option value="stars" data-i18n="pickerSortStars"></option>
+            <option value="name" data-i18n="pickerSortName"></option>
+          </select>
+        </div>
+        <div class="picker-toggles">
+          <label class="check">
+            <input type="checkbox" id="picker-forks" /><span data-i18n="pickerIncludeForks"></span>
+          </label>
+          <label class="check">
+            <input type="checkbox" id="picker-archived" /><span
+              data-i18n="pickerIncludeArchived"
+            ></span>
+          </label>
+          <span class="grow"></span>
+          <button type="button" class="link" id="picker-top" data-i18n="pickerSelectTop"></button>
+          <button type="button" class="link" id="picker-none" data-i18n="pickerSelectNone"></button>
+        </div>
+        <ul class="picker-list" id="picker-list"></ul>
+        <p class="help" id="picker-cost"></p>
+        <div class="dialog-actions">
+          <button type="button" id="picker-cancel" class="ghost" data-i18n="close"></button>
+          <span class="grow"></span>
+          <button type="button" id="picker-add" class="primary"></button>
+        </div>
+      </div>
     </dialog>
 
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>

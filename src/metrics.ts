@@ -1,4 +1,5 @@
 import type {
+  ContributorSeries,
   Granularity,
   Metric,
   RepoSeries,
@@ -188,9 +189,124 @@ export function seriesFor(repo: RepoSeries, opts: ViewOptions): Series {
   };
 }
 
+/**
+ * 貢献者の詳細データを、リポジトリと同じ形の RepoSeries に変換する。
+ * こうしておくと、以降の集計・平滑化・正規化を系列の種類によらず同じ経路で通せる。
+ */
+function asRepoSeries(
+  base: RepoSeries,
+  login: string,
+  parts: { detail: ContributorSeries; repo: RepoSeries }[],
+  /** 週の unix 秒 -> base.weeks 上の index。呼び出し側で 1 度だけ作って使い回す */
+  weekIndex: Map<number, number>,
+): RepoSeries {
+  const n = base.weeks.length;
+  const commits = new Array<number>(n).fill(0);
+  const additions = new Array<number>(n).fill(0);
+  const deletions = new Array<number>(n).fill(0);
+  const active: number[] = [];
+
+  for (const { detail, repo } of parts) {
+    for (let k = 0; k < detail.weeks.length; k++) {
+      const localIdx = detail.weeks[k]!;
+      const weekTs = repo.weeks[localIdx];
+      if (weekTs === undefined) continue;
+      // リポジトリごとに開始週が違うので、共通の週目盛りに載せ替える
+      const i = weekIndex.get(weekTs);
+      if (i === undefined) continue;
+      commits[i]! += detail.commits[k] ?? 0;
+      additions[i]! += detail.additions[k] ?? 0;
+      deletions[i]! += detail.deletions[k] ?? 0;
+      if ((detail.commits[k] ?? 0) > 0) active.push(i);
+    }
+  }
+
+  return {
+    meta: { ...base.meta, fullName: login },
+    weeks: base.weeks,
+    commits,
+    additions,
+    deletions,
+    activeWeeks: active.length > 0 ? [active] : [],
+    contributors: [],
+    truncated: false,
+    hasLineStats: parts.some((p) => p.repo.hasLineStats),
+  };
+}
+
+/**
+ * GitHub App のアカウントかどうか。
+ * App が作るアカウントの login は必ず "[bot]" で終わるので、それだけを見る。
+ * 名前に bot を含むだけの人間を巻き込まないよう、推測は広げない。
+ */
+export function isBot(login: string): boolean {
+  return login.endsWith('[bot]');
+}
+
+/**
+ * 読み込み済みのリポジトリ群を、アカウント単位の系列に組み替える。
+ * 同じ人が複数のリポジトリに出てくる場合は合算する。
+ */
+export function accountSeries(
+  repos: RepoSeries[],
+  top: number,
+  excludeBots = false,
+): RepoSeries[] {
+  const usable = repos.filter((r) => r.weeks.length > 0);
+  if (usable.length === 0) return [];
+
+  // 全リポジトリを覆う共通の週目盛りを作る
+  const starts = usable.map((r) => r.weeks[0]!);
+  const ends = usable.map((r) => r.weeks[r.weeks.length - 1]!);
+  const from = Math.min(...starts);
+  const to = Math.max(...ends);
+  const weeks: number[] = [];
+  const weekIndex = new Map<number, number>();
+  for (let t = from; t <= to; t += WEEK_SEC) {
+    weekIndex.set(t, weeks.length);
+    weeks.push(t);
+  }
+
+  const base: RepoSeries = {
+    meta: usable[0]!.meta,
+    weeks,
+    commits: [],
+    additions: [],
+    deletions: [],
+    activeWeeks: [],
+    contributors: [],
+    truncated: false,
+    hasLineStats: false,
+  };
+
+  const byLogin = new Map<string, { detail: ContributorSeries; repo: RepoSeries }[]>();
+  for (const repo of usable) {
+    for (const detail of repo.contributors) {
+      const list = byLogin.get(detail.login);
+      if (list === undefined) byLogin.set(detail.login, [{ detail, repo }]);
+      else list.push({ detail, repo });
+    }
+  }
+
+  return [...byLogin.entries()]
+    .filter(([login]) => !(excludeBots && isBot(login)))
+    .map(([login, parts]) => ({
+      login,
+      parts,
+      total: parts.reduce((sum, p) => sum + p.detail.totalCommits, 0),
+    }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, top)
+    .map(({ login, parts }) => asRepoSeries(base, login, parts, weekIndex));
+}
+
 /** 全リポジトリぶんの系列を組み立てる。シェア表示だけは系列をまたいだ正規化が要る */
 export function buildSeries(repos: RepoSeries[], opts: ViewOptions): Series[] {
-  const series = repos.map((r) => seriesFor(r, opts));
+  const sources =
+    opts.seriesBy === 'account'
+      ? accountSeries(repos, opts.topAccounts, opts.excludeBots)
+      : repos;
+  const series = sources.map((r) => seriesFor(r, opts));
   if (opts.normalize !== 'share') return series;
 
   const totals = new Map<number, number>();

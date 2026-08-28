@@ -6,7 +6,7 @@
 
 // キャッシュに入れる構造を変えたらここを上げる。
 // 古い形のデータが読み込まれて欠けたフィールドが undefined になるのを防ぐ。
-const PREFIX = 'octivity:v2:';
+const PREFIX = 'octivity:v3:';
 /** 既定の有効期限（6時間）。GitHub 側の統計キャッシュもおよそ日単位で更新される */
 export const DEFAULT_TTL_MS = 6 * 60 * 60 * 1000;
 

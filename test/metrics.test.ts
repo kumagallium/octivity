@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  accountSeries,
   aggregate,
   bucketIndex,
   bucketStart,
   buildSeries,
   cumulate,
   cumulativeContributors,
+  isBot,
   isLineMetric,
   metricValue,
   movingAverage,
@@ -15,7 +17,7 @@ import {
 } from '../src/metrics';
 import { DEFAULT_VIEW } from '../src/state';
 import type { Metric, ViewOptions } from '../src/types';
-import { SUNDAY_2024_01_07, WEEK, series } from './helpers';
+import { SUNDAY_2024_01_07, WEEK, contributor, series } from './helpers';
 
 const view = (o: Partial<ViewOptions> = {}): ViewOptions => ({ ...DEFAULT_VIEW, ...o });
 
@@ -213,5 +215,117 @@ describe('isLineMetric', () => {
     const others: Metric[] = ['commits', 'contributors'];
     expect(lineMetrics.every(isLineMetric)).toBe(true);
     expect(others.some(isLineMetric)).toBe(false);
+  });
+});
+
+describe('accountSeries', () => {
+  it('同じ人が複数のリポジトリにいれば合算する', () => {
+    const a = series({
+      commits: [2, 3],
+      metaOverrides: { fullName: 'org/a' },
+      contributors: [contributor('alice', [{ week: 0, c: 2 }, { week: 1, c: 3 }])],
+    });
+    const b = series({
+      commits: [5, 0],
+      metaOverrides: { fullName: 'org/b' },
+      contributors: [contributor('alice', [{ week: 0, c: 5 }])],
+    });
+    const out = accountSeries([a, b], 10);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.meta.fullName).toBe('alice');
+    expect(out[0]!.commits).toEqual([7, 3]);
+  });
+
+  it('開始週が違うリポジトリでも共通の週目盛りに載せ替える', () => {
+    // b は a より 2 週遅れて始まる
+    const a = series({
+      commits: [1, 0, 0],
+      contributors: [contributor('alice', [{ week: 0, c: 1 }])],
+      metaOverrides: { fullName: 'org/a' },
+    });
+    const b = series({
+      start: SUNDAY_2024_01_07 + 2 * WEEK,
+      commits: [4],
+      contributors: [contributor('bob', [{ week: 0, c: 4 }])],
+      metaOverrides: { fullName: 'org/b' },
+    });
+    const out = accountSeries([a, b], 10);
+    const bob = out.find((r) => r.meta.fullName === 'bob')!;
+    const alice = out.find((r) => r.meta.fullName === 'alice')!;
+    expect(alice.weeks).toEqual(bob.weeks);
+    // bob の 4 コミットは共通目盛りの 3 週目（index 2）に載る
+    expect(bob.commits).toEqual([0, 0, 4]);
+    expect(alice.commits).toEqual([1, 0, 0]);
+  });
+
+  it('コミット数の多い順に上位だけ返す', () => {
+    const repo = series({
+      commits: [10],
+      contributors: [
+        contributor('low', [{ week: 0, c: 1 }]),
+        contributor('high', [{ week: 0, c: 9 }]),
+      ],
+      metaOverrides: { fullName: 'org/a' },
+    });
+    const out = accountSeries([repo], 1);
+    expect(out.map((r) => r.meta.fullName)).toEqual(['high']);
+  });
+
+  it('貢献者の詳細が無ければ空を返す', () => {
+    expect(accountSeries([series({ commits: [1, 2] })], 10)).toEqual([]);
+  });
+});
+
+describe('buildSeries（アカウント別）', () => {
+  it('seriesBy=account でアカウント単位の線になる', () => {
+    const repo = series({
+      commits: [3],
+      contributors: [
+        contributor('alice', [{ week: 0, c: 2 }]),
+        contributor('bob', [{ week: 0, c: 1 }]),
+      ],
+    });
+    const out = buildSeries([repo], view({ seriesBy: 'account', granularity: 'week' }));
+    expect(out.map((s) => s.fullName)).toEqual(['alice', 'bob']);
+    expect(out[0]!.points[0]!.y).toBe(2);
+  });
+});
+
+describe('isBot', () => {
+  it('GitHub App のアカウントを見分ける', () => {
+    expect(isBot('renovate[bot]')).toBe(true);
+    expect(isBot('dependabot[bot]')).toBe(true);
+  });
+
+  it('名前に bot を含むだけの人間は巻き込まない', () => {
+    for (const login of ['robot-lover', 'botanist', 'bot', 'sapphi-red']) {
+      expect(isBot(login), login).toBe(false);
+    }
+  });
+});
+
+describe('accountSeries のボット除外', () => {
+  const repo = series({
+    commits: [10],
+    contributors: [
+      contributor('renovate[bot]', [{ week: 0, c: 9 }]),
+      contributor('alice', [{ week: 0, c: 1 }]),
+    ],
+  });
+
+  it('既定では含める', () => {
+    expect(accountSeries([repo], 10).map((r) => r.meta.fullName)).toEqual([
+      'renovate[bot]',
+      'alice',
+    ]);
+  });
+
+  it('除外を指定すると人間だけになる', () => {
+    expect(accountSeries([repo], 10, true).map((r) => r.meta.fullName)).toEqual(['alice']);
+  });
+
+  it('除外は上位N件の絞り込みより先に効く', () => {
+    // ボットを除いた上での上位1件なので alice が残る
+    expect(accountSeries([repo], 1, true).map((r) => r.meta.fullName)).toEqual(['alice']);
   });
 });

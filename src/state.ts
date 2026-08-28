@@ -1,4 +1,4 @@
-import type { Granularity, Metric, Normalize, ViewOptions, XMode } from './types';
+import type { Granularity, Metric, Normalize, SeriesBy, ViewOptions, XMode } from './types';
 import { parseRepoRef, refToString } from './github';
 
 export interface AppState {
@@ -9,6 +9,9 @@ export interface AppState {
 
 export const DEFAULT_VIEW: ViewOptions = {
   metric: 'commits',
+  seriesBy: 'repository',
+  topAccounts: 10,
+  excludeBots: true,
   granularity: 'month',
   xMode: 'date',
   cumulative: false,
@@ -21,7 +24,9 @@ const METRICS: Metric[] = ['commits', 'additions', 'deletions', 'net', 'churn', 
 const GRANULARITIES: Granularity[] = ['week', 'month', 'quarter', 'year'];
 const X_MODES: XMode[] = ['date', 'age'];
 const NORMALIZE: Normalize[] = ['none', 'peak', 'share'];
+const SERIES_BY: SeriesBy[] = ['repository', 'account'];
 export const SMOOTH_OPTIONS = [1, 3, 6, 12, 24] as const;
+export const TOP_ACCOUNT_OPTIONS = [5, 10, 20, 40] as const;
 
 function pick<T extends string>(value: string | null, allowed: T[], fallback: T): T {
   return value !== null && (allowed as string[]).includes(value) ? (value as T) : fallback;
@@ -42,6 +47,13 @@ export function decodeState(search: string): AppState {
     ? smoothRaw
     : DEFAULT_VIEW.smooth;
 
+  const topRaw = Number(p.get('t'));
+  const topAccounts = TOP_ACCOUNT_OPTIONS.includes(
+    topRaw as (typeof TOP_ACCOUNT_OPTIONS)[number],
+  )
+    ? topRaw
+    : DEFAULT_VIEW.topAccounts;
+
   return {
     repos,
     view: {
@@ -49,9 +61,13 @@ export function decodeState(search: string): AppState {
       granularity: pick(p.get('g'), GRANULARITIES, DEFAULT_VIEW.granularity),
       xMode: pick(p.get('x'), X_MODES, DEFAULT_VIEW.xMode),
       normalize: pick(p.get('n'), NORMALIZE, DEFAULT_VIEW.normalize),
+      seriesBy: pick(p.get('b'), SERIES_BY, DEFAULT_VIEW.seriesBy),
       cumulative: p.get('c') === '1',
+      // 既定でボットを除くので、URL では「含める」を明示したときだけ 0 を置く
+      excludeBots: p.get('bots') !== '1',
       logScale: p.get('l') === '1',
       smooth,
+      topAccounts,
     },
   };
 }
@@ -71,6 +87,9 @@ export function encodeState(state: AppState): string {
   if (v.cumulative) p.set('c', '1');
   if (v.logScale) p.set('l', '1');
   if (v.smooth !== DEFAULT_VIEW.smooth) p.set('s', String(v.smooth));
+  if (v.seriesBy !== DEFAULT_VIEW.seriesBy) p.set('b', v.seriesBy);
+  if (!v.excludeBots) p.set('bots', '1');
+  if (v.topAccounts !== DEFAULT_VIEW.topAccounts) p.set('t', String(v.topAccounts));
   const s = p.toString();
   return s === '' ? '' : '?' + s;
 }

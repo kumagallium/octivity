@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { buildSeries, parseRepoRef, refToString } from '../src/github';
+import {
+  buildSeries,
+  classifyInput,
+  isRepoSeries,
+  parseRepoRef,
+  refToString,
+} from '../src/github';
 import { meta, SUNDAY_2024_01_07, WEEK } from './helpers';
 
 describe('parseRepoRef', () => {
@@ -149,5 +155,56 @@ describe('行数統計の欠落検出', () => {
       { author: { login: 'a' }, total: 0, weeks: [{ w: w(0), a: 0, d: 0, c: 0 }] },
     ]);
     expect(s.hasLineStats).toBe(true);
+  });
+});
+
+describe('classifyInput', () => {
+  it('スラッシュを含まない単独の語はオーナー名とみなす', () => {
+    const cases: [string, string][] = [
+      ['kumagallium', 'kumagallium'],
+      ['  vitejs  ', 'vitejs'],
+      ['https://github.com/vitejs', 'vitejs'],
+      ['https://github.com/vitejs/', 'vitejs'],
+    ];
+    for (const [input, owner] of cases) {
+      expect(classifyInput(input), input).toEqual({ kind: 'owner', owner });
+    }
+  });
+
+  it('owner/repo が混ざればリポジトリとして扱う', () => {
+    const out = classifyInput('vitejs/vite, rollup/rollup');
+    expect(out.kind).toBe('repos');
+    expect(out.kind === 'repos' && out.refs.map(refToString)).toEqual([
+      'vitejs/vite',
+      'rollup/rollup',
+    ]);
+  });
+
+  it('複数の語が並ぶ場合はオーナー名扱いしない', () => {
+    const out = classifyInput('vitejs rollup');
+    expect(out).toEqual({ kind: 'repos', refs: [] });
+  });
+
+  it('オーナー名として不正な文字は弾く', () => {
+    expect(classifyInput('not a name!')).toEqual({ kind: 'repos', refs: [] });
+  });
+});
+
+describe('isRepoSeries', () => {
+  it('contributors を持たない古い形を弾く', () => {
+    // 保存形式を変えたのにプレフィックスを上げ忘れると、この形が読み込まれる
+    expect(isRepoSeries({ weeks: [1], commits: [1], activeWeeks: [[0]] })).toBe(false);
+  });
+
+  it('現行の形は通す', () => {
+    expect(
+      isRepoSeries({ weeks: [1], commits: [1], activeWeeks: [[0]], contributors: [] }),
+    ).toBe(true);
+  });
+
+  it('null や配列でない値を弾く', () => {
+    for (const bad of [null, undefined, 42, 'x', {}, { weeks: 'no' }]) {
+      expect(isRepoSeries(bad), String(bad)).toBe(false);
+    }
   });
 });

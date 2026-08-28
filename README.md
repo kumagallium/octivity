@@ -11,8 +11,12 @@ Runs entirely in your browser — no server, no install, no sign-up.
 
 ## What it does
 
-Type a few `owner/repo` names and get one chart with every repository on it:
+Type a few `owner/repo` names and get one chart with every repository on it.
+Type just an **account name** — `vitejs`, `kumagallium` — and pick from its repositories
+instead of typing each one.
 
+- Draw one line **per repository**, or **per account** — the same data, regrouped, so you
+  can see who was carrying a project and when. Bots are excluded by default
 - **Commits**, **lines added**, **lines deleted**, **net lines**, **churn**, **contributors**
 - **Weekly / monthly / quarterly / yearly** buckets
 - Two time axes: **calendar date**, or **repository age** — the latter lines every
@@ -26,15 +30,23 @@ Type a few `owner/repo` names and get one chart with every repository on it:
 
 ## How it gets the data
 
-Two requests per repository, straight from your browser to `api.github.com`:
+Straight from your browser to `api.github.com`:
 
 | Request | What it gives |
 |---|---|
 | `GET /repos/{owner}/{repo}` | creation date, description, stars |
 | `GET /repos/{owner}/{repo}/stats/contributors` | **the whole history**, week by week, per contributor: commits, lines added, lines deleted |
+| `GET /users/{owner}/repos` | the repository list behind the account picker |
 
-That is the entire data layer. Results are cached in `localStorage` for six hours,
-so revisiting a comparison costs nothing.
+Two requests per repository — or **one**, when you came in through the account picker,
+because that listing already carries everything the first request would have returned
+and is written straight into the cache. The picker shows how many requests your
+selection will cost and how many you have left, so you can see the bill before paying it.
+
+Per-account lines cost nothing extra: `stats/contributors` is already per contributor,
+so switching the series from repositories to accounts is a regrouping, not a new fetch.
+
+Results are cached in `localStorage` for six hours, so revisiting a comparison costs nothing.
 
 ## Limits you should know about
 
@@ -55,6 +67,13 @@ These are GitHub's limits, not bugs — but they change how you should read the 
   (webpack's is ~34 MB).
 - **Rate limit.** 60 requests/hour without a token, 5,000 with one. The remaining
   count is shown in the footer.
+- **Accounts are built from the top committers** of each repository (up to 60 per
+  repository), which is what the per-account view draws from. The repository-level
+  contributor *count* still uses everyone GitHub returned.
+- **Pull requests are not available.** GitHub's statistics API has no PR data, and
+  counting PRs any other way costs roughly one request per 100 pull requests — a
+  repository like vite would take about 100 requests on its own. That does not fit in
+  the two-requests-per-repository budget this tool is built around.
 - **Weeks are GitHub's weeks** — Sunday 00:00 UTC boundaries. Month, quarter, and
   year buckets are built by summing those weeks, so a week that straddles a month
   boundary lands in the month its Sunday falls in.
@@ -133,7 +152,12 @@ MIT. Not affiliated with GitHub, Inc.
 ## できること
 
 `owner/repo` をいくつか入れると、全部を重ねた 1 枚のグラフになります。
+**アカウント名だけ**（`vitejs`、`kumagallium` など）を入れると、そのアカウントの
+リポジトリ一覧から選べます。1つずつ打ち込む必要はありません。
 
+- 線の単位を**リポジトリ別**と**アカウント別**で切り替えられます。同じデータの
+  組み替えなので、「誰がいつそのプロジェクトを支えていたか」がそのまま見えます。
+  ボットは既定で除外します
 - **コミット数**・**追加行数**・**削除行数**・**純増行数**・**変更行数**・**貢献者数**
 - **週 / 月 / 四半期 / 年** の粒度
 - 横軸は 2 通り。**実日付**と、**リポジトリ年齢**。後者は各リポジトリを自分の
@@ -146,14 +170,23 @@ MIT. Not affiliated with GitHub, Inc.
 
 ## データの取り方
 
-1 リポジトリにつき 2 リクエスト。ブラウザから `api.github.com` を直接叩きます。
+ブラウザから `api.github.com` を直接叩きます。
 
 | リクエスト | 得られるもの |
 |---|---|
 | `GET /repos/{owner}/{repo}` | 作成日・説明・スター数 |
 | `GET /repos/{owner}/{repo}/stats/contributors` | **全期間**の週次データ（貢献者別のコミット数・追加行数・削除行数） |
+| `GET /users/{owner}/repos` | アカウント指定時のリポジトリ一覧 |
 
-これがデータ層のすべてです。結果は `localStorage` に 6 時間キャッシュされます。
+1 リポジトリにつき 2 リクエスト。ただしアカウント一覧から選んだ場合は**1 リクエスト**です。
+一覧のレスポンスが 1 つ目のリクエストで得られる情報をすべて含んでいるので、
+そのままキャッシュに書き込んでいます。選択ダイアログには消費するリクエスト数と残量を
+出しているので、払う前に金額が見えます。
+
+アカウント別の線に追加コストはかかりません。`stats/contributors` はもともと
+貢献者ごとのデータなので、系列の単位を変えるのは取得ではなく組み替えです。
+
+結果は `localStorage` に 6 時間キャッシュされます。
 
 ## 知っておくべき制約
 
@@ -170,6 +203,11 @@ MIT. Not affiliated with GitHub, Inc.
   octivity はバックオフしながら待ちます。巨大なリポジトリはレスポンス自体も大きく、
   webpack で約 34 MB あります。
 - **レート制限。** トークンなしで 60 回/時、ありで 5000 回/時。残量はフッターに出ます。
+- **アカウント別の線は各リポジトリのコミット上位者**（リポジトリあたり最大 60 人）から
+  組み立てています。リポジトリ単位の「貢献者数」は GitHub が返した全員を数えています。
+- **プルリク数は扱えません。** GitHub の統計 API に PR のデータはなく、別の方法で数えると
+  PR 100 件あたり約 1 リクエストかかります。vite なら単体で約 100 リクエストです。
+  このツールが前提にしている「1 リポジトリ 2 リクエスト」には収まりません。
 - **週の境界は GitHub の定義**（日曜 00:00 UTC）です。月・四半期・年はその週を
   合算して作るので、月をまたぐ週は日曜が属する月に入ります。
 

@@ -306,3 +306,69 @@ button:disabled { opacity: 0.5; cursor: default; }
   .topbar, main, .footer { padding-left: 14px; padding-right: 14px; }
   .field select { min-width: 108px; }
 }
+
+/* --- リポジトリ選択ダイアログ --- */
+.picker-dialog {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--text);
+  max-width: 640px;
+  width: calc(100% - 32px);
+  padding: 20px;
+}
+.picker-dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+.picker { display: flex; flex-direction: column; gap: 10px; }
+.picker h2 { margin: 0; font-size: 17px; font-weight: 600; }
+.picker-controls { display: flex; gap: 8px; }
+.picker-controls input { flex: 1; min-width: 0; }
+.picker-toggles { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.picker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: min(46vh, 340px);
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.picker-list li { border-bottom: 1px solid var(--border); }
+.picker-list li:last-child { border-bottom: none; }
+.picker-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.picker-row:hover { background: var(--panel-alt); }
+.picker-row input { margin-top: 4px; flex: none; }
+.picker-main { min-width: 0; flex: 1; }
+.picker-name { font-size: 14px; }
+.picker-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.picker-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.badge {
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 6px;
+  color: var(--text-muted);
+  margin-left: 6px;
+}
+.picker-empty { padding: 20px; text-align: center; color: var(--text-muted); font-size: 13px; }
+#picker-cost.over { color: var(--danger); }
+
+/* アカウント別では「人数」列（5列目）を隠す */
+.legend-table[data-series-by='account'] th:nth-child(5),
+.legend-table[data-series-by='account'] td:nth-child(5) { display: none; }

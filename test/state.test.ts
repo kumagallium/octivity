@@ -22,6 +22,23 @@ describe('decodeState', () => {
     expect(s.view.smooth).toBe(DEFAULT_VIEW.smooth);
   });
 
+  it('系列の単位と人数を読む', () => {
+    const s = decodeState('?b=account&t=20');
+    expect(s.view.seriesBy).toBe('account');
+    expect(s.view.topAccounts).toBe(20);
+  });
+
+  it('ボットは既定で除外し、bots=1 のときだけ含める', () => {
+    expect(decodeState('').view.excludeBots).toBe(true);
+    expect(decodeState('?bots=1').view.excludeBots).toBe(false);
+  });
+
+  it('未知の系列単位・人数は既定値に戻す', () => {
+    const s = decodeState('?b=galaxy&t=7');
+    expect(s.view.seriesBy).toBe(DEFAULT_VIEW.seriesBy);
+    expect(s.view.topAccounts).toBe(DEFAULT_VIEW.topAccounts);
+  });
+
   it('フラグを読む', () => {
     const s = decodeState('?c=1&l=1&s=12&x=age');
     expect(s.view.cumulative).toBe(true);
@@ -44,6 +61,9 @@ describe('encodeState', () => {
         metric: 'churn' as const,
         granularity: 'quarter' as const,
         xMode: 'age' as const,
+        seriesBy: 'account' as const,
+        topAccounts: 20,
+        excludeBots: false,
         cumulative: true,
         smooth: 6,
         normalize: 'peak' as const,
