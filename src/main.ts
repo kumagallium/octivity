@@ -14,6 +14,7 @@ import { detectLang, t, type Lang, type MessageKey } from './i18n';
 import { clearToken, isRemembered, loadToken, saveToken } from './token';
 import { cacheClear, cachePurgeOld } from './cache';
 import type {
+  ChartStyle,
   Granularity,
   Metric,
   Normalize,
@@ -322,7 +323,10 @@ function renderChart(): void {
   const dropped = needsLines ? ready.filter((e) => !e.series.hasLineStats) : [];
 
   const note = $('metric-note');
-  if (dropped.length === 0) {
+  if (dropped.length === 0 && state.view.chartStyle === 'stacked') {
+    note.hidden = false;
+    note.textContent = t(lang, 'stackedNote');
+  } else if (dropped.length === 0) {
     note.hidden = true;
   } else {
     note.hidden = false;
@@ -672,6 +676,8 @@ function exportCsv(): void {
   const rows = [['repository', 'x', 'x_label', state.view.metric].join(',')];
   for (const s of series) {
     for (const p of s.points) {
+      // 穴（その時期に存在しなかった点）は行にしない
+      if (p.y === null) continue;
       const label = formatX(p.x, state.view.xMode, state.view.granularity, 'en');
       rows.push([s.fullName, p.x, `"${label}"`, p.y].join(','));
     }
@@ -707,6 +713,10 @@ function bindControls(): void {
     });
   };
 
+  bind<HTMLSelectElement>('chart-style', (el) => {
+    state.view.chartStyle = el.value as ChartStyle;
+    syncControls();
+  });
   bind<HTMLSelectElement>('series-by', (el) => {
     state.view.seriesBy = el.value as SeriesBy;
     // 人はリポジトリの年齢を持たないので、アカウント別では実日付に戻す
@@ -730,7 +740,10 @@ function bindControls(): void {
 
 function syncControls(): void {
   const byAccount = state.view.seriesBy === 'account';
+  $<HTMLSelectElement>('chart-style').value = state.view.chartStyle;
   $<HTMLSelectElement>('series-by').value = state.view.seriesBy;
+  // 積み上げは「合計の内訳」を見るものなので、ピーク正規化とは噛み合わない
+  $<HTMLSelectElement>('normalize').disabled = state.view.chartStyle === 'stacked';
   $<HTMLSelectElement>('top-accounts').value = String(state.view.topAccounts);
   $('top-accounts-field').hidden = !byAccount;
   $('exclude-bots-field').hidden = !byAccount;

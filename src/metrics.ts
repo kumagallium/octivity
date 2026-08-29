@@ -306,20 +306,63 @@ export function buildSeries(repos: RepoSeries[], opts: ViewOptions): Series[] {
     opts.seriesBy === 'account'
       ? accountSeries(repos, opts.topAccounts, opts.excludeBots)
       : repos;
-  const series = sources.map((r) => seriesFor(r, opts));
+  let series = sources.map((r) => seriesFor(r, opts));
+  series = alignSeries(
+    series,
+    opts.chartStyle !== 'stacked' ? 'gap' : opts.cumulative ? 'hold' : 'zero',
+  );
   if (opts.normalize !== 'share') return series;
 
   const totals = new Map<number, number>();
   for (const s of series) {
-    for (const p of s.points) totals.set(p.x, (totals.get(p.x) ?? 0) + Math.abs(p.y));
+    for (const p of s.points) {
+      if (p.y === null) continue;
+      totals.set(p.x, (totals.get(p.x) ?? 0) + Math.abs(p.y));
+    }
   }
   return series.map((s) => ({
     ...s,
     points: s.points.map((p) => {
+      if (p.y === null) return p;
       const total = totals.get(p.x) ?? 0;
       return { x: p.x, y: total > 0 ? (p.y / total) * 100 : 0 };
     }),
   }));
+}
+
+/**
+ * 全系列の x を共通の目盛りに揃える。
+ *
+ * Chart.js は積み上げもツールチップの突き合わせも「同じ添字どうし」で行う。
+ * 開始時期の違う系列をそのまま渡すと、添字 3 が系列ごとに別の月を指し、
+ * 別の時点の値が足されたり並べて表示されたりする。
+ *
+ * fill は系列の範囲外をどう埋めるか。
+ * - gap : null。線を引かない。比較（折れ線・面）ではこれが正しい
+ * - zero: 0。積み上げで、活動していない期間は寄与ゼロとして扱う
+ * - hold: 開始前は 0、終了後は最後の値。累積の積み上げ用。
+ *         ここを 0 にすると、止まったリポジトリの累計が合計から消えてしまう
+ */
+export function alignSeries(series: Series[], fill: 'gap' | 'zero' | 'hold'): Series[] {
+  const xs = [...new Set(series.flatMap((s) => s.points.map((p) => p.x)))].sort((a, b) => a - b);
+  if (xs.length === 0) return series;
+
+  return series.map((s) => {
+    const known = new Map(s.points.map((p) => [p.x, p.y]));
+    const last = s.points[s.points.length - 1]?.x ?? -Infinity;
+    const lastValue = s.points[s.points.length - 1]?.y ?? 0;
+
+    return {
+      ...s,
+      points: xs.map((x) => {
+        const y = known.get(x);
+        if (y !== undefined) return { x, y };
+        if (fill === 'gap') return { x, y: null };
+        if (x > last && fill === 'hold') return { x, y: lastValue };
+        return { x, y: 0 };
+      }),
+    };
+  });
 }
 
 export interface Summary {

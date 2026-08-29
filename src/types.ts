@@ -83,6 +83,13 @@ export type Metric =
 /** 1本の線が何を表すか */
 export type SeriesBy = 'repository' | 'account';
 
+/**
+ * グラフの描き方。
+ * line は比較向き。area は系列が少ないとき。
+ * stacked は「合計とその内訳」を見るためのもので、比較とは別の問いに答える。
+ */
+export type ChartStyle = 'line' | 'area' | 'stacked';
+
 /** オーナー配下のリポジトリ一覧の1件（選択ダイアログ用） */
 export interface OwnerRepo {
   fullName: string;
@@ -119,12 +126,18 @@ export interface ViewOptions {
   normalize: Normalize;
   /** 縦軸を対数にするか */
   logScale: boolean;
+  chartStyle: ChartStyle;
 }
 
 /** グラフに流し込む1系列 */
 export interface Series {
   fullName: string;
-  points: { x: number; y: number }[];
+  /**
+   * y が null の点は「その時期にこの系列は存在しなかった」ことを表し、描画されない。
+   * 全系列の x を揃えたうえで穴を null にしておくと、
+   * Chart.js が添字で系列を突き合わせても常に同じ時点どうしが並ぶ。
+   */
+  points: { x: number; y: number | null }[];
   truncated: boolean;
   /** 配色を決める番号。凡例やチップと色を揃えるため呼び出し側が指定する */
   colorIndex?: number;

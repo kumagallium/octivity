@@ -1,4 +1,12 @@
-import type { Granularity, Metric, Normalize, SeriesBy, ViewOptions, XMode } from './types';
+import type {
+  ChartStyle,
+  Granularity,
+  Metric,
+  Normalize,
+  SeriesBy,
+  ViewOptions,
+  XMode,
+} from './types';
 import { parseRepoRef, refToString } from './github';
 
 export interface AppState {
@@ -18,6 +26,7 @@ export const DEFAULT_VIEW: ViewOptions = {
   smooth: 1,
   normalize: 'none',
   logScale: false,
+  chartStyle: 'line',
 };
 
 const METRICS: Metric[] = ['commits', 'additions', 'deletions', 'net', 'churn', 'contributors'];
@@ -25,6 +34,7 @@ const GRANULARITIES: Granularity[] = ['week', 'month', 'quarter', 'year'];
 const X_MODES: XMode[] = ['date', 'age'];
 const NORMALIZE: Normalize[] = ['none', 'peak', 'share'];
 const SERIES_BY: SeriesBy[] = ['repository', 'account'];
+const CHART_STYLES: ChartStyle[] = ['line', 'area', 'stacked'];
 export const SMOOTH_OPTIONS = [1, 3, 6, 12, 24] as const;
 export const TOP_ACCOUNT_OPTIONS = [5, 10, 20, 40] as const;
 
@@ -62,6 +72,7 @@ export function decodeState(search: string): AppState {
       xMode: pick(p.get('x'), X_MODES, DEFAULT_VIEW.xMode),
       normalize: pick(p.get('n'), NORMALIZE, DEFAULT_VIEW.normalize),
       seriesBy: pick(p.get('b'), SERIES_BY, DEFAULT_VIEW.seriesBy),
+      chartStyle: pick(p.get('a'), CHART_STYLES, DEFAULT_VIEW.chartStyle),
       cumulative: p.get('c') === '1',
       // 既定でボットを除くので、URL では「含める」を明示したときだけ 0 を置く
       excludeBots: p.get('bots') !== '1',
@@ -89,6 +100,7 @@ export function encodeState(state: AppState): string {
   if (v.smooth !== DEFAULT_VIEW.smooth) p.set('s', String(v.smooth));
   if (v.seriesBy !== DEFAULT_VIEW.seriesBy) p.set('b', v.seriesBy);
   if (!v.excludeBots) p.set('bots', '1');
+  if (v.chartStyle !== DEFAULT_VIEW.chartStyle) p.set('a', v.chartStyle);
   if (v.topAccounts !== DEFAULT_VIEW.topAccounts) p.set('t', String(v.topAccounts));
   const s = p.toString();
   return s === '' ? '' : '?' + s;

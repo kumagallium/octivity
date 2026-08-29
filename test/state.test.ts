@@ -28,6 +28,11 @@ describe('decodeState', () => {
     expect(s.view.topAccounts).toBe(20);
   });
 
+  it('表示形式を読む', () => {
+    expect(decodeState('?a=stacked').view.chartStyle).toBe('stacked');
+    expect(decodeState('?a=bogus').view.chartStyle).toBe(DEFAULT_VIEW.chartStyle);
+  });
+
   it('ボットは既定で除外し、bots=1 のときだけ含める', () => {
     expect(decodeState('').view.excludeBots).toBe(true);
     expect(decodeState('?bots=1').view.excludeBots).toBe(false);
@@ -68,6 +73,7 @@ describe('encodeState', () => {
         smooth: 6,
         normalize: 'peak' as const,
         logScale: true,
+        chartStyle: 'stacked' as const,
       },
     };
     expect(decodeState(encodeState(original))).toEqual(original);

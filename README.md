@@ -17,6 +17,10 @@ instead of typing each one.
 
 - Draw one line **per repository**, or **per account** — the same data, regrouped, so you
   can see who was carrying a project and when. Bots are excluded by default
+- Three styles: **lines** for comparing series against each other, **area** when there are
+  only a few, and **stacked area** when the question is the combined total and how each
+  repository contributes to it. Series are labelled at the end of each line, so there is
+  no legend to look back and forth to
 - **Commits**, **lines added**, **lines deleted**, **net lines**, **churn**, **contributors**
 - **Weekly / monthly / quarterly / yearly** buckets
 - Two time axes: **calendar date**, or **repository age** — the latter lines every
@@ -170,6 +174,9 @@ MIT. Not affiliated with GitHub, Inc.
 - 線の単位を**リポジトリ別**と**アカウント別**で切り替えられます。同じデータの
   組み替えなので、「誰がいつそのプロジェクトを支えていたか」がそのまま見えます。
   ボットは既定で除外します
+- 表示は 3 種類。系列どうしを比べるなら**折れ線**、本数が少ないときは**面**、
+  「全体の合計と、そこへの各リポジトリの寄与」を見たいときは**積み上げ面**です。
+  系列名は線の終端に直接置いてあるので、凡例と視線を往復する必要がありません
 - **コミット数**・**追加行数**・**削除行数**・**純増行数**・**変更行数**・**貢献者数**
 - **週 / 月 / 四半期 / 年** の粒度
 - 横軸は 2 通り。**実日付**と、**リポジトリ年齢**。後者は各リポジトリを自分の

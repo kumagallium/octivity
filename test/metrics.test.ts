@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   accountSeries,
   aggregate,
+  alignSeries,
   bucketIndex,
   bucketStart,
   buildSeries,
@@ -165,7 +166,7 @@ describe('seriesFor', () => {
       series({ commits: [1, 5, 2] }),
       view({ granularity: 'week', normalize: 'peak' }),
     );
-    expect(Math.max(...s.points.map((p) => p.y))).toBeCloseTo(100);
+    expect(Math.max(...s.points.map((p) => p.y ?? 0))).toBeCloseTo(100);
   });
 
   it('累積すると単調非減少になる', () => {
@@ -181,7 +182,7 @@ describe('buildSeries', () => {
     const b = series({ commits: [3, 1], metaOverrides: { fullName: 'b/b' } });
     const out = buildSeries([a, b], view({ granularity: 'week', normalize: 'share' }));
     for (let i = 0; i < 2; i++) {
-      const total = out.reduce((sum, s) => sum + s.points[i]!.y, 0);
+      const total = out.reduce((sum, s) => sum + (s.points[i]!.y ?? 0), 0);
       expect(total).toBeCloseTo(100);
     }
   });
@@ -327,5 +328,76 @@ describe('accountSeries のボット除外', () => {
   it('除外は上位N件の絞り込みより先に効く', () => {
     // ボットを除いた上での上位1件なので alice が残る
     expect(accountSeries([repo], 1, true).map((r) => r.meta.fullName)).toEqual(['alice']);
+  });
+});
+
+describe('alignSeries（系列の x 揃え）', () => {
+  const a = { fullName: 'a', truncated: false, points: [{ x: 0, y: 1 }, { x: 1, y: 2 }] };
+  const b = { fullName: 'b', truncated: false, points: [{ x: 1, y: 5 }, { x: 2, y: 6 }] };
+
+  it('全系列を共通の x 目盛りに揃える', () => {
+    for (const fill of ['gap', 'zero', 'hold'] as const) {
+      for (const s of alignSeries([a, b], fill)) {
+        expect(s.points.map((p) => p.x), fill).toEqual([0, 1, 2]);
+      }
+    }
+  });
+
+  it('gap では範囲外を null にし、線を描かせない', () => {
+    const [aa, bb] = alignSeries([a, b], 'gap');
+    expect(bb!.points[0]).toEqual({ x: 0, y: null });
+    expect(aa!.points[2]).toEqual({ x: 2, y: null });
+  });
+
+  it('揃えたあと、同じ添字が必ず同じ x を指す', () => {
+    // Chart.js は添字で系列を突き合わせるので、ここが崩れると
+    // 別の時点の値が並んで表示される
+    const out = alignSeries([a, b], 'gap');
+    for (let i = 0; i < 3; i++) {
+      const xs = new Set(out.map((s) => s.points[i]!.x));
+      expect(xs.size).toBe(1);
+    }
+  });
+
+  it('zero では範囲外を 0 にする', () => {
+    const [aa, bb] = alignSeries([a, b], 'zero');
+    expect(bb!.points[0]).toEqual({ x: 0, y: 0 });
+    expect(aa!.points[2]).toEqual({ x: 2, y: 0 });
+  });
+
+  it('hold では、終わったあとも最後の値を保つ', () => {
+    // ここを 0 埋めすると、開発が止まったリポジトリの累計が合計から消える
+    const [aa, bb] = alignSeries([a, b], 'hold');
+    expect(aa!.points[2]).toEqual({ x: 2, y: 2 });
+    expect(bb!.points[0]).toEqual({ x: 0, y: 0 });
+  });
+
+  it('hold で積み上げた合計が単調非減少になる', () => {
+    const out = alignSeries([a, b], 'hold');
+    const totals = [0, 1, 2].map((i) =>
+      out.reduce((sum, s) => sum + (s.points[i]!.y ?? 0), 0),
+    );
+    for (let i = 1; i < totals.length; i++) {
+      expect(totals[i]!).toBeGreaterThanOrEqual(totals[i - 1]!);
+    }
+  });
+});
+
+describe('buildSeries（積み上げ）', () => {
+  it('stacked のときだけ x を揃える', () => {
+    const early = series({ commits: [1, 1], metaOverrides: { fullName: 'a/a' } });
+    const late = series({
+      start: SUNDAY_2024_01_07 + 2 * WEEK,
+      commits: [1],
+      metaOverrides: { fullName: 'b/b' },
+    });
+    const stacked = buildSeries([early, late], view({ granularity: 'week', chartStyle: 'stacked' }));
+    // 積み上げでは足せるよう数値で埋める
+    expect(stacked.every((s) => s.points.every((p) => p.y !== null))).toBe(true);
+
+    const lines = buildSeries([early, late], view({ granularity: 'week' }));
+    // 折れ線でも x は揃えるが、存在しない期間は穴のままにする
+    expect(lines.every((s) => s.points.length === 3)).toBe(true);
+    expect(lines[1]!.points[0]!.y).toBeNull();
   });
 });
