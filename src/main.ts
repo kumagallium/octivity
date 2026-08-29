@@ -12,7 +12,7 @@ import {
 import { colorFor } from './palette';
 import { detectLang, t, type Lang, type MessageKey } from './i18n';
 import { clearToken, isRemembered, loadToken, saveToken } from './token';
-import { cacheClear } from './cache';
+import { cacheClear, cachePurgeOld } from './cache';
 import type {
   Granularity,
   Metric,
@@ -758,6 +758,15 @@ function bindTokenDialog(): void {
   // グラフの埋め込み自体は許しつつ、トークン入力だけは断る。
   const framed = window.top !== window.self;
 
+  // GitHub Pages のユーザーサイトは全プロジェクトが同じオリジンに載る。
+  // 保存領域はパスではなくオリジン単位なので、その事実を隠さず出す。
+  const sharedOrigin = location.hostname.endsWith('.github.io');
+  const originNote = $('token-shared-origin');
+  originNote.hidden = !sharedOrigin;
+  if (sharedOrigin) {
+    originNote.textContent = t(lang, 'tokenSharedOrigin', { host: location.hostname });
+  }
+
   $('token-open').addEventListener('click', () => {
     if (framed) {
       toast(t(lang, 'tokenFramed'));
@@ -784,6 +793,7 @@ function bindTokenDialog(): void {
 }
 
 function main(): void {
+  cachePurgeOld();
   applyTheme();
   applyI18n();
   syncControls();

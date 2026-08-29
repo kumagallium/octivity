@@ -381,3 +381,9 @@ button:disabled { opacity: 0.5; cursor: default; }
   color: var(--accent);
   padding: 0 2px;
 }
+
+.help.warn {
+  border-left: 3px solid var(--danger);
+  border-radius: 0;
+  padding-left: 10px;
+}

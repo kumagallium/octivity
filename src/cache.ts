@@ -87,3 +87,23 @@ export function cacheClear(): number {
 export function cacheSize(): number {
   return entries().length;
 }
+
+/**
+ * 前の形式で保存された値を捨てる。
+ * プレフィックスを上げると古いキーは読まれなくなるが、消えるわけではないので、
+ * 放っておくと使われないデータが容量を占め続ける。
+ */
+export function cachePurgeOld(): number {
+  let removed = 0;
+  const stale: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key === null) continue;
+    if (key.startsWith('octivity:v') && !key.startsWith(PREFIX)) stale.push(key);
+  }
+  for (const key of stale) {
+    localStorage.removeItem(key);
+    removed++;
+  }
+  return removed;
+}

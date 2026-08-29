@@ -73,6 +73,10 @@ const DICT = {
     ja: 'トークンはこのブラウザから出ません。中継サーバーは存在せず、通信先は api.github.com だけです（CSP で強制）。共有 URL にも含まれません。',
     en: 'Your token never leaves this browser. There is no relay server, and the page can only connect to api.github.com (enforced by CSP). It is never put in the shareable URL.',
   },
+  tokenSharedOrigin: {
+    ja: 'このページは {host} 配下にあります。ブラウザの保存領域はパスではなくドメイン単位なので、同じドメインの他の GitHub Pages からも保存したトークンを読めます。権限は「public リポジトリの読み取り」だけに絞ってください。それなら万一漏れても、公開情報が読まれる以上のことは起きません。',
+    en: 'This page is served from {host}. Browser storage is scoped to the domain, not the path, so any other GitHub Pages site on the same domain can read a stored token. Keep the token limited to read-only access to public repositories — then a leak exposes nothing beyond what is already public.',
+  },
   tokenRemember: { ja: 'このブラウザに保存する', en: 'Remember in this browser' },
   tokenRememberHelp: {
     ja: 'オフならタブを閉じた時点で消えます。共用の端末ではオフのままにしてください。',

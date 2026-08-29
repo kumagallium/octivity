@@ -90,10 +90,19 @@ A token is optional and only raises the rate limit. If you use one:
 - The deployed page ships a Content-Security-Policy with
   `connect-src https://api.github.com`, so even if something were injected into the
   page, it could not transmit your token anywhere else.
+- It is sent in an `Authorization` header, never as a query parameter, so it does not
+  end up in server logs, proxy logs, browser history, or `Referer` headers.
+- It is **never** written to the URL, so shared links never carry it.
 - It is stored in `sessionStorage` by default and disappears when you close the tab.
   Persisting it to `localStorage` is a separate, explicit opt-in.
-- It is **never** written to the URL, so shared links never carry it.
-- A fine-grained token with read-only access to public repositories is enough.
+- **But note the origin.** GitHub Pages serves every project site of an account from a
+  single domain — `you.github.io/octivity/` shares an origin with `you.github.io/` and
+  every other project you publish. Browser storage is scoped to the origin, not the path,
+  so any of those pages can read a stored token. This is how GitHub Pages works, not
+  something octivity can fix, and the app says so in the token dialog.
+- Which is why the recommendation is a **fine-grained token limited to read-only access
+  to public repositories**. That is all octivity needs, and a token that weak grants an
+  attacker nothing beyond reading what is already public.
 
 If you would rather not trust a hosted page with a token at all, run it locally:
 the app is identical.
@@ -226,10 +235,19 @@ MIT. Not affiliated with GitHub, Inc.
   （GitHub Pages は静的ファイルを配るだけです）。
 - 配信ページには `connect-src https://api.github.com` を含む CSP が付いています。
   仮にページに何かが混入しても、トークンを他所へ送り出すことはできません。
+- `Authorization` ヘッダーで送ります。クエリ文字列には載せないので、サーバーログ・
+  プロキシのログ・ブラウザ履歴・`Referer` ヘッダーのいずれにも残りません。
+- URL には**決して**載せません。共有リンクからは漏れません。
 - 既定では `sessionStorage` に置かれ、タブを閉じると消えます。
   `localStorage` への永続化は明示的なオプトインです。
-- URL には**決して**載せません。共有リンクからは漏れません。
-- 権限は fine-grained token の「public repositories の read-only」だけで足ります。
+- **ただしオリジンに注意。** GitHub Pages はアカウント配下の全プロジェクトを 1 つの
+  ドメインで配ります。`you.github.io/octivity/` は `you.github.io/` や他の公開プロジェクトと
+  同じオリジンです。ブラウザの保存領域はパスではなくオリジン単位なので、それらのページからも
+  保存したトークンを読めます。これは GitHub Pages の仕組みであって octivity では直せません。
+  アプリのトークン画面にも同じ注意を出しています。
+- だからこそ勧めるのが **fine-grained token の「public リポジトリの読み取りのみ」** です。
+  octivity に必要なのはそれだけで、その権限しかないトークンは、漏れても
+  「すでに公開されている情報を読む」以上のことに使えません。
 
 ホストされたページにトークンを預けたくない場合は、手元で動かしてください。中身は同一です。
 
